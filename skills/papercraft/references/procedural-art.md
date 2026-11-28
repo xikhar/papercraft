@@ -135,7 +135,7 @@ on a card's silhouette, which is always a clean cut (section 3):
 
 **Implementations.** `scripts/paper_textures.py` is the reference (band noise, wrapped strands, pebbles, crumple, mean
 tilt and fine-detail calibration, cut / deckle / torn sheet masks) and writes files for any engine. In JS the kit's
-`paperSheet()` and `normalMap()` give a tileable sheet. Its fibres are 0.35-1.15 px wide, so view it at one texel per
+`paperSheet()` and `normalMap()` give a tileable sheet. Its fibres are 0.6-1.6 px wide, so view it at one texel per
 screen px or more, or scale it up. `printCard` multiplies the sheet over the print, so build it near-white (`#FAF6EE`)
 or it shifts your palette.
 
@@ -233,7 +233,7 @@ touch or overlap, and only the outer boundary is traced, so a closed opening fil
 | berries, flowers | clusters of 3-6 dots; 5 dots round a centre | 3-7 % | bushes, meadows |
 | grass tufts | fans of 2-4 fat tapered blades (width 1/5 of length) | | ground, bases |
 | ripples | light-ink lens slivers in staggered rows | 15-30 % of the strip | water |
-| windows | dark frame 12 % of the width, 2 x 2 panes in the world's window colour (the countryside's `#F7D77E`) with a brighter centre, a sill strip; lit by day too; printed (`P.glow`), never cut as a hole | | buildings with windows |
+| windows | dark frame 12 % of the width, 2 x 2 panes in the world's window colour (the countryside's `#ffc45a`) with a brighter centre, a sill strip; lit by day too; printed (`P.glow`), never cut as a hole | | buildings with windows |
 | doors | arched plank door, 2 plank lines, a knob dot | | buildings |
 | portholes | trim-colour ring + lit glass disc with a brighter centre | | ships, sci-fi |
 | rivets | rows of dots along panel edges, a pale dot offset toward the light optional | 1.5-3 px radius on screen | machines, hulls |
@@ -299,24 +299,27 @@ paper always come last):
 
 ## 4. With paperkit-2d
 
-**The core kit** (`assets/lib/paperkit-2d.js`, import it as is): `paperSheet`, `normalMap`, `tileNoise` (tileable value
-noise); generic outlines (`shape.rect`, `shape.mound` (flat-based), `shape.radial`, `shape.hill`, `shape.waves`) and
-`roughen` (keeps the base line straight unless `keepBase: false`); `fromDrawing(draw, { w, h })`, which traces
-whatever the canvas calls fill (units, y up, base on y = 0; `draw2.ell`, `.rect`, `.poly`) into one cut outline;
-`drawnPiece(draw, { w, h, finish })`, the same drawing cut AND printed, every fill its own layer (below);
-`printCard(pts, { pxPerUnit, sheet, seed, paint, bleed })`, whose `paint(P)` draws in shape
-units (y up) clipped to the cut and gets `P.fill`, `P.gradient`, `P.innerShade`, `P.marks(kind, { size, units })`
-(size = fraction of `P.U`, the card's smaller side, or with `units: true` an absolute size in shape units for big
-cards, where relative speckle grew huge on a 17 x 9 rock face; organic kinds `leaf dab dot tick scallop scale wave
-hatch`, built kinds `brick panel rivet stripe window`; each style is batched into one path), `P.rim({ width, color:
-'auto', dark: 'auto', light, skip })` (the cut edge: the dark line at the silhouette plus pale discs inside it sized
-by how much each edge faces `light`, upper left by default; `width` = the highlight at its widest in shape units,
-default 1.6 % of the card's own height, which suits only a card about the hero's height: in 2D pass
-`width: 0.015 * heroHeight` on every card; both colours derived from the print's mean), `P.draw`, `P.glow`,
-`P.outline` (an optional faint key line, off in the shipped style) and `P.paper`, plus `P.px` (one print pixel in
-shape units) and `P.r` (seeded rng); it returns `{ canvas, box, pxPerUnit, mean }` (`mean` = average print colour;
-`bleed` fills outside the cut with a colour for geometry-cut cards so mipmaps never fringe dark; `holes` cuts
-openings, below). Also the layer pass `P.layer(shape, colour, { shadow, lip, shade, rim, felt, depth })` and
+**The core kit** (`assets/lib/paperkit-2d.js`, import it as is): `paperSheet`, `normalMap`, `tileNoise` (tileable
+value noise); generic outlines, a seeded rng first where the shape has chance in it (`shape.rect(w, h)`,
+`shape.mound(r, { w, h, lobes, depth })` (flat-based), `shape.radial(r, { rx, ry, lobes, depth, spiky, stalk })`,
+`shape.hill(r, { w, h, bumps })`, `shape.waves(r, { w, h, crests })`, `shape.cloud(r, { w, h, puffs })`,
+`shape.roundedRect(w, h, radius)`, `shape.ngon(n, radius)` for a footprint; `r = P2.rng(seed)`) and `roughen` (keeps
+the base line straight unless `keepBase: false`); `fromDrawing(draw, { w, h })`, which traces whatever the canvas
+calls fill (units, y up, base on y = 0; `draw2.ell`, `.rect`, `.poly`) into one cut outline; `drawnPiece(draw, { w, h,
+finish })`, the same drawing cut AND printed, every fill its own layer (below); `printCard(pts, { pxPerUnit, sheet,
+seed, paint, bleed })`, whose `paint(P)` draws in shape units (y up) clipped to the cut and gets `P.fill`,
+`P.gradient`, `P.innerShade`, `P.marks(kind, { size, units })` (size = fraction of `P.U`, the card's smaller side, or
+with `units: true` an absolute size in shape units for big cards, where relative speckle grew huge on a 17 x 9 rock
+face; organic kinds `leaf dab dot tick scallop scale wave hatch`, built kinds `brick panel rivet stripe window`; each
+style is batched into one path), `P.rim({ width, color: 'auto', dark: 'auto', light, skip })` (the cut edge: the dark
+line at the silhouette plus pale discs inside it sized by how much each edge faces `light`, upper left by default;
+`width` = the highlight at its widest in shape units, default 1.6 % of the card's own height, which suits only a card
+about the hero's height: in 2D code of your own pass `width: 0.015 * heroHeight` on every card; the 2D template's
+`H.piece` and the 3D `makeCard` call it for you: never rim twice; both colours derived from the print's mean),
+`P.draw`, `P.glow`, `P.outline` (an optional faint key line, off in the shipped style) and `P.paper`, plus `P.px` (one
+print pixel in shape units) and `P.r` (seeded rng); it returns `{ canvas, box, pxPerUnit, mean }` (`mean` = average
+print colour; `bleed` fills outside the cut with a colour for geometry-cut cards so mipmaps never fringe dark; `holes`
+cuts openings, below). Also the layer pass `P.layer(shape, colour, { shadow, lip, shade, rim, felt, depth })` and
 `P.parts(fn)` (section 0), `P.felt()`, the drawing primitives `fillLeaf` (a fat almond: leaf, blade, petal, flame,
 feather) and `fillLimb` (a tapered limb: trunk, branch, stem, tentacle, pipe), `spanAt` / `tierTips` (outline
 geometry), `accentsFor(base)` (a fallback accent pair), one world's folk motifs as an example set (`motif.sprig`,
@@ -338,15 +341,16 @@ The print API on one screen (shape units, y up; `P.U` = the card's smaller side)
 | `P.draw((g, P) => { ... })`, `P.glow((g) => { ... })` | any flat drawing; lit parts (white = glow) into the emissive map |
 | `P.box`, `P.U`, `P.px`, `P.r`, `P.g` | bounding box, smaller side, one print pixel, the seeded rng, the 2D context |
 
-**Worked examples, not parts** (`assets/examples/countryside.js`): the pieces of the one world the style was
-distilled from, built with these recipes. Read one painter (`paintTree` is the clearest: a trunk ~16 % of the crown, 6 limbs with two twigs each, ~20
-leaves ~1/7 of the crown at the tips and out to the rim) to see how a recipe becomes code: the order of the layers,
-the proportions, where the accents go. Then write your subject's own; never import, retune or recolour them for a new
-subject. A Mars dome, a coral head or a temple is a new design with the same method, never a recoloured cottage or
-bush. The 3D `makeCard` (paperkit-3d) calls `P.rim` itself (`edgeWidth` in world units, default 0.06; edges listed in
-`folds`, default `['bottom']`, get none) and colours the sides as a darkened print; `layeredCard` stacks 2-3 prints on
-one hinge (bushes: back darker and taller, front lighter and ~0.4 nearer). A layered print costs ~10-30 ms: print
-near on-screen size (40-48 px per unit at a hero framing in 3D).
+**Worked examples, not parts** (`assets/examples/countryside.js`): the pieces of the one world the style was distilled
+from, built with these recipes. Read one painter (`paintTree` is the clearest: a trunk ~16 % of the crown, 6 limbs
+with two twigs each, ~20 leaves ~1/7 of the crown at the tips and out to the rim) to see how a recipe becomes code:
+the order of the layers, the proportions, where the accents go. Then write your subject's own; never import, retune or
+recolour them for a new subject. A Mars dome, a coral head or a temple is a new design with the same method, never a
+recoloured cottage or bush. The 3D `makeCard` (paperkit-3d) calls `P.rim` itself (`edgeWidth` in world units, default
+0.06; edges listed in `folds`, default `['bottom']`, get none) and colours the sides as a darkened print;
+`layeredCard` stacks 2-3 prints on one hinge (bushes: back darker and taller, front lighter and ~0.4 nearer). Most
+prints cost 2-8 ms, a big many-layered one 50-100 ms (`printStats`, `three-js.md` section 9): print near on-screen
+size (40-48 px per unit at a hero framing in 3D).
 
 **One connected cut.** `fromDrawing` keeps the LARGEST connected part and DROPS every part that does not touch it (a
 loose pennant is lost, the tent kept), with a console warning that names the drawing and gives the dropped share of
@@ -518,8 +522,9 @@ export function buildAtlas(items, sheet, { size = 2048, pad = 8, bleed = 4, page
 - One fixed print density for all sprites of a kind (px per world unit), sized so the sprite lands at 1-2 texels per
   screen pixel; the rim in px follows from it. Bake 4-6 seeds per kind (section 0), never repeat one inside a
   cluster, and keep at most ~3 identical props in view.
-- The same contract (`rect`, `outline`, `kind`, `pxPerUnit`, `aspect`, `tone`) is what an image-generated atlas writes
-  (`image-gen.md` section 8), so either source drops in.
+- Generated art arrives another way: `scripts/extract_cutouts.py` writes one transparent PNG per piece, mounted with
+  `imageCard` (`image-gen.md` section 8). To pack those into this atlas, write the same contract for them (`rect`,
+  `outline`, `kind`, `pxPerUnit`, `aspect`, `tone`).
 
 ## 5. SVG, CSS and video
 

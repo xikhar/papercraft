@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>papercraft test: film plumbing</title>
+<link rel="icon" href="data:,">
+<style>html, body { margin: 0; height: 100%; overflow: hidden; background: #c9b27e; } canvas { display: block; width: 100%; height: 100%; }</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js", "papercraft/": "../../../skills/papercraft/assets/" } }</script>
+</head>
+<body>
+<!-- A hero-less film for tests/browser.py: cues, a camera on a controller, light that turns from day to night with
+     H.mixMood, lamps, and one image card with its own back art and a glow mask. ?view=back looks at it from behind;
+     ?cue turns the light once, from a cue at 2 s (restart() must put the day back).
+     Serve the repo root: capture.py <repo> --page tests/pages/film/index.html -->
+<script type="module">
+import * as P2 from 'papercraft/lib/paperkit-2d.js';
+import { imageCard } from 'papercraft/lib/paperkit-3d.js';
+import { createHarness } from 'papercraft/templates/popup-3d/harness.js';
+
+const Q = new URLSearchParams(location.search), BACK = Q.get('view') === 'back', CUE = Q.has('cue');
+const H = createHarness({ ground: '#cdbf9a', autoOpen: false, roam: true, view: { pitch: 30, dist: 30, target: [0, 4, 0] },
+  lens: { focusBand: 0.9, ramp: 0.4, maxBlur: 2, grain: 0 } });
+
+// art drawn here, so the test needs no image file: an octagon, red on the face; the back blue with a pale stripe on the
+// LEFT as seen from behind; the glow mask a white disc in the middle
+const S = 256, oct = (g) => { g.beginPath(); for (let i = 0; i < 8; i++) { const a = Math.PI / 8 + i * Math.PI / 4; g.lineTo(S / 2 + Math.cos(a) * S * 0.5, S / 2 + Math.sin(a) * S * 0.5); } g.closePath(); };
+const canvas = (draw) => { const c = document.createElement('canvas'); c.width = c.height = S; draw(c.getContext('2d')); return c; };
+const front = canvas((g) => { oct(g); g.fillStyle = '#c8402e'; g.fill(); });
+const back = canvas((g) => { oct(g); g.fillStyle = '#2e58c8'; g.fill(); g.save(); oct(g); g.clip(); g.fillStyle = '#f2ead8'; g.fillRect(0, 0, S * 0.3, S); g.restore(); });
+const glow = canvas((g) => { g.fillStyle = '#fff'; g.beginPath(); g.arc(S / 2, S / 2, S * 0.14, 0, Math.PI * 2); g.fill(); });
+const card = imageCard(front, { height: 8, paper: H.paper, back, glow, contact: 0 });
+const sign = H.popup(null, null, { node: card, height: 8, x: 0, z: 0, yaw: 0 });
+H.glowing(sign.group);
+
+const plain = (c) => (P) => { P.fill(c); P.felt(0.4); };
+const mound = (w, h) => P2.shape.mound(P2.rng(3), { w, h, lobes: 5, depth: 0.12 });
+const bushes = [[-9, 3], [9, 3], [-11, -5], [11, -5]].map(([x, z]) => H.popup(mound(4, 2.6), plain('#7f9a5a'), { x, z }));
+H.lamp(-6, 2, 4, 1, 12); H.lamp(6, 2, 4, 1, 12);
+
+const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+H.cue(0.1, () => H.setOpen(true));
+if (CUE) H.cue(2, () => H.mixMood('night'));
+H.setCameraController((t, dt, ctx) => {
+  const az = BACK ? Math.PI : 0, pitch = 30 * Math.PI / 180, d = 30;
+  ctx.target.set(0, 4, 0);
+  ctx.camera.position.set(Math.sin(az) * Math.cos(pitch) * d, 4 + Math.sin(pitch) * d, Math.cos(az) * Math.cos(pitch) * d);
+  ctx.camera.lookAt(ctx.target);
+  if (!CUE) H.mixMood('day', 'night', smooth(1.5, 3, t));       // light that changes over time
+  ctx.fitShadow(ctx.lights, ctx.target);
+});
+H.start();
+</script>
+</body>
+</html>

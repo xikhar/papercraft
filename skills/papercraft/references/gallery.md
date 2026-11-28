@@ -12,6 +12,10 @@ things:
 - **The range.** The same style makes five worlds that share no palette, no ground, no buildings and no weather. Only
   the way things are built, printed, lit, framed and moved stays the same (section 8).
 
+`assets/gallery/range/` holds sixteen more frames of other subjects and other kinds of work in the same craft (a
+reef, a station deck, a rainy city, an interior, a page UI, a figure sheet, a material close-up): section 9. Those
+are generated direction frames, not builds.
+
 They are not a menu. Never move a gallery world's colours, kinds or layout into a different brief. The small figure in
 a straw hat is that game's player: design your own (`mechanisms.md` section 12). The palettes below were measured on
 the frames with `scripts/measure.py`, so they show how authored colours land under the light and grade. Your own come
@@ -206,3 +210,36 @@ None of it is in the gallery. Only the method is.
 - the palette and the ground;
 - the leading line, the structures and the prints;
 - the light's colour, and which life lives there.
+
+## 9. The range: sixteen frames beyond the game (`assets/gallery/range/`)
+
+The five worlds above are all countryside, by day but for one snow night. These frames show the same craft carrying
+other subjects, other light and other kinds of work. They were made with an image tool from this skill's style
+description with the game's stills attached as style inputs (`image-gen.md` section 4), and kept only where the pieces
+read as thin printed cards. They are direction frames, not builds:
+
+- **Use them** to see how far the style reaches before you write a spec, as examples of what a good direction frame
+  looks like, and as an extra style input beside the game's stills when your brief is near one of them (a night
+  frame, an interior, a page).
+- **Do not use them** as the quality bar of a finished build (they are idealised; the game's stills are what a build
+  reaches), as content (no piece, layout or palette moves into your brief), or to calibrate gates (`measure.py`'s
+  ranges come from the game's frames).
+
+| Frame | What it shows | Where the image tool drifted from card (do not build these) |
+|---|---|---|
+| `railway-rising.jpg` | a world mid-rise: the page still a pencil print ahead of the subject, cards caught half-up with their kraft backs showing, everything behind it standing | the half-risen cards lean on a strut instead of turning on a base hinge |
+| `harbour-dusk.jpg` | dusk: lit window panes, lamp pools on the printed quay, boats as cards standing in slots on printed water | the quay's kerb stones are small blocks |
+| `night-country.jpg` | a whole map at night from a high wide camera: a lit line through dark land, hills as flat layered cards | the bridge reads as one modelled solid |
+| `reef.jpg` | no buildings at all: crossed corals and kelp, fish as cards on thin stalks, printed sand ripples, a cool key | the boat's hull and the tube sponge are modelled |
+| `space-station.jpg` | a dark printed deck with panel lines, modules and tanks, a catwalk that is built ground, warm practicals in a cool light | the modules are round cylinders (a build folds many-sided prisms), the pipes are modelled |
+| `city-rain-night.jpg` | a night street: folded-box buildings with lit shop fronts, flat card people and cars, paper rain streaks | the wet reflections look glossy; in paper they are printed streaks on a matte ground |
+| `fairground-dusk.jpg` | movers: a wheel as one flat card disc, a carousel as a prism, striped tents, bunting and lantern strings | none worth noting |
+| `castle-village.jpg` | a landmark on a stepped hill of stacked layers, a built drawbridge over a printed moat, small scenes of card people | the castle walls are thicker than card |
+| `jungle-ruin.jpg` | dense planting of crossed cards, a stepped pyramid of stacked layers, a waterfall as printed cards | the ruin's wall stones have thickness |
+| `volcano-island.jpg` | a landmark as four layered flats, printed lava and sea, smoke as paper discs with a printed spiral | none worth noting |
+| `bakery-interior.jpg` | an interior: a room with no ceiling, its back walls two large printed cards, furniture as folded boxes | none worth noting |
+| `crystal-mine.jpg` | a world lit by its own pieces: glowing crossed crystals and lanterns, coloured pools on a dark ground | the rock walls read as torn layered sheets |
+| `canal-town.jpg` | water as streets: canals printed into the page, footbridges that are built ground, boats in slots | the bridges' balustrades are modelled |
+| `paper-ui.jpg` | a page UI, flat and frontal: a cream sheet, a neatline, a printed band with a torn edge, raised cards, a raised and a pressed button, cut-paper icons, blank rules where the text goes | the cards' edges are soft and embossed; a build cuts them crisp with a short shadow (`paper-ui.md`) |
+| `figure-sheet.jpg` | a figure designed as its parts, each from the front, the side and the back, ready to be built as cards (`image-gen.md` section 6) | none worth noting |
+| `material-close.jpg` | the material at macro distance: card thickness at the cut edge, the dark line and the lit highlight, the layered print, hinge tabs, fibre, a coloured shadow | none worth noting |

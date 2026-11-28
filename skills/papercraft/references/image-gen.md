@@ -15,7 +15,8 @@ converge; 6 A consistent set; 7 Using what you made; 8 Generated images inside t
 ## 1. Rules
 
 - **Only when the user asks, and never load-bearing.** Use the tool when the user says to and it is there. Never wait
-  on it, and keep the work complete without any generated image.
+  on it, and keep the work complete without any generated image: if a call fails, retry at most once, then stay
+  procedural (`procedural-art.md`).
 - **References first.** The value is direction: how the project looks, what its elements are, how its light and mood
   feel. Generated images go inside the work only when the user wants that (section 8).
 - **Look at every output.** Keep the calls few, regenerate sparingly, and keep a short log: the prompt, the image
@@ -25,7 +26,7 @@ converge; 6 A consistent set; 7 Using what you made; 8 Generated images inside t
   picked the generated frame over the build nearly every time.
 - **Never ship third-party images.** The user's references may be image inputs for what they give (SKILL.md
   section 2): say in the prompt what to take from each, and that its composition, characters, logos and text are not
-  to be copied. The gallery is never an input.
+  to be copied. The gallery is never a content input; it may be a STYLE input, craft only (section 4).
 
 ## 2. What to make, by medium
 
@@ -47,9 +48,12 @@ in this skill's terms, filled from the brief; labelled parts like these work wel
 
 - **Medium:** what the image is: a macro photograph of a handmade pop-up paper world (a scene, or a still of a video),
   or a flat frontal scan of a handmade paper page (a page or UI).
-- **Material:** matte, rigid cardstock; every piece a layered paper collage, printed, with accents that contrast with
-  its base; chunky shapes with big, countable motifs, nothing thin or spiky. Name the edges the medium wants: crisp
-  die-cut card in a scene, deckled or torn sheets only where a page calls for them (`paper-ui.md`).
+- **Material:** matte, rigid cardstock; every piece a THIN FLAT die-cut card (as thick as a playing card) printed
+  with a flat layered illustration, with accents that contrast with its base; volume only from two cards slotted
+  crosswise or a folded box; chunky outlines with big, countable motifs, nothing thin or spiky. Say what it is not:
+  nothing sculpted, rounded, moulded, clay, foam or felt ("chunky" alone returns moulded toys). Name the edges the
+  medium wants: crisp die-cut card in a scene, deckled or torn sheets only where a page calls for them
+  (`paper-ui.md`).
 - **Edges:** a thin dark cut line at every silhouette and a pale highlight just inside it on the lit side only.
 - **Palette:** the brief's colours by role (the ground or page, the lead family, the accents), in words or hexes.
 - **Light:** the brief's key and time of day, a soft fill, soft shadows coloured by the world, never grey.
@@ -71,6 +75,29 @@ not:
 - **Content or layout:** keep its pieces, their places and their count, and redraw them in the style; add, remove and
   merge nothing.
 - **Palette and mood:** take its colours and its light, nothing else.
+
+**Always give a style image when the tool takes one.** Words alone do not hold this craft: in two film projects
+all 8 frames made from a careful style description came back as chunky sculpted felt or foam toys, and the builds
+that followed them had nothing reachable to match. The same subjects with three gallery stills attached as style
+inputs came back as thin printed cards on the first try in 2 of 4 frames, and in 4 of 4 once the first good frame
+was added as the main style input. So:
+
+- Attach 2-3 of the game's stills from `assets/gallery/` as STYLE inputs: from different worlds, not only the one
+  nearest your brief, and a night still when the frame is dusk or night. A frame from `assets/gallery/range/` can
+  stand beside them when your brief is close to it in kind (an interior, a page UI, a figure sheet): those were made
+  this way (`gallery.md` section 9), so they show what a direction frame should look like.
+- Check how your tool takes image inputs before the first batch: some command-line tools read every argument after
+  the image flag as another image, so the prompt must come first.
+- Say in the prompt: "the attached images are style references from one handmade paper world; make a new image in
+  exactly their visual language; copy only the craft (thin flat die-cut cards, upright round things as two crossed
+  cards, volumes as folded boxes, the flat printed illustration with its dark cut line, the matte fibre ground, the
+  long lens and its one sharp band); do not copy their scenes, layouts, palettes or subjects, and leave out the
+  small figure in the straw hat."
+- Make the first frame that lands in the style the MAIN style input for the rest of the set (name it first), with one
+  gallery still beside it. Give the scale too ("the same toy scale and camera distance as the first image"): a dense
+  subject such as a town otherwise comes back as thick modelled blocks.
+- Watch for what leaks: the gallery's leaf-and-flower ornament turned up on a viaduct's piers and on train carriages.
+  Say what may be printed on each kind of piece (section 6), and check the palette is your brief's.
 
 The strongest input is the work itself. A target made from a few of your own screenshots, named as the main reference
 for the world, the camera and the light ("a new scene in exactly this visual language, but better"), stays reachable:
@@ -121,9 +148,22 @@ a video. Everything above still holds, and:
 - **The cut edge comes with the art:** ask for the thin dark outline with its lit-side highlight, and never add a
   second rim on top. No perspective, cast shadow or glow inside a sheet; a flat base on anything that stands on a
   hinge.
-- **Cut, then pack** into the same atlas contract as the procedural prints (`procedural-art.md` section 4.3), so
-  either source drops in and a rejected piece falls back to a procedural one. Keep the colour under the soft edge of
-  each cut, and size every piece by world or layout units, never by its pixels.
+- **Cut the sheet:** `python scripts/extract_cutouts.py sheet.png --out assets/cutouts --names hero,prop1,prop2
+  --sheet-preview` floods the backdrop in from the border (`--key auto` reads its colour from the corners; a PNG
+  that is already transparent is cut on its own alpha, colours untouched), gives each edge pixel the alpha and the
+  colour it had before the backdrop mixed in (`--despill`, 2 px by default: no pink, green or grey rim, and a dark
+  outline stays dark), splits the pieces in reading order and writes `_preview.png` to look at. Holes inside a piece
+  are cleared only on a saturated key (magenta, green, any strong colour); on a white or grey backdrop pass
+  `--punch-holes` (it would otherwise eat white eyes and paper highlights), and `--keep-holes` never clears one.
+  When `--names` does not match the number of pieces found it fails and writes nothing, and it lists the small
+  islands it dropped (`--min-area` keeps a small piece): read both before you trust the names. A piece the colour of
+  its backdrop cannot be cut from it (white on white, pink on magenta), and a cast shadow on the backdrop is cut as
+  part of the piece: that is what the key colour and the no-shadow rule above are for.
+- **Mount in 3D:** load the image first (`await img.decode()`), then `imageCard(img, { height, paper: H.paper, cross,
+  rim })` (`three-js.md` section 3): the paper's fibre inside the alpha, contact darkening at the base, a kraft or
+  mirrored back (or the back's own art: `back: image`, for a piece seen from behind or lying face-down; `glow: image`
+  lights its panes) and a shadow cut to the silhouette. Leave `rim` at 0 for art drawn with its own cut line; pass
+  ~0.05 for art that has none (a photo, a sprite, a logo). Size every piece in world units, never in pixels.
 - **Check after cutting, before swapping anything in:** the count and order, no key colour left inside, thin parts
   still there, the outline hugging the art, the cut edge on close crops, the colours under the final grade, and each
   piece beside the procedural ones.
@@ -136,6 +176,8 @@ Look at every image before you use it, and regenerate when it shows:
 - a page, book or board lying on a table, a border, or a room around the work;
 - flat vector art without depth, or a glossy CG render;
 - soft, felt-like paper, or deckled sheets where the work wants crisp card;
+- sculpted, moulded or clay-like pieces (rounded toys, thick blocks, relief bricks) where the work is thin flat
+  printed cards: a build cannot reach such a frame, so it is not a target;
 - an even pale or white rim round every piece (a sticker), or a glow;
 - one colour flooding the frame, or the key colour inside a piece;
 - the wrong count, or pieces merged into each other;

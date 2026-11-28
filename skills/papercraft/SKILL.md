@@ -9,28 +9,28 @@ description: >-
   (pop-up, papercraft, paper diorama, cut-out, made of paper, handmade, storybook). Not for real folding instructions,
   printable craft patterns, or paper as in documents.
 license: MIT
-compatibility: Templates and kit run in any modern browser (three.js r187 via CDN). Scripts need Python 3 with numpy and Pillow. Image generation is optional, used only when the user asks.
+compatibility: Templates and kit run in any modern browser (three.js r187 via CDN). Scripts need Python 3 with numpy and Pillow; capture.py also needs Playwright with Chrome, and ffmpeg for video. Image generation is optional, used only when the user asks.
 metadata:
   author: xikhar
-  version: "0.6.0"
+  version: "0.7.0"
 ---
 
 # Papercraft
 
 One style, any subject: a pop-up diorama seen from inside. Illustrated cards, printed with ink on fibrous cardstock
 and cut out, stand up from a printed ground on hinges; they rise with a springy overshoot and settle, cast soft
-shadows, coloured by the world, on the ground and on each other, and are seen through a long macro lens looking down into the world, with a
-shallow tilt-shift focus band, as if a real paper model were photographed. Everything here comes from a shipped
-browser game in this style and was paid for in critic rounds and user feedback; the numbers are starting points that
-held up, not decoration. The brief always wins over these defaults.
+shadows, coloured by the world, on the ground and on each other, and are seen through a long macro lens looking down
+into the world, with a shallow tilt-shift focus band, as if a real paper model were photographed. Everything here
+comes from a shipped browser game in this style and was paid for in critic rounds and user feedback; the numbers are
+starting points that held up, not decoration. The brief always wins over these defaults.
 
 This skill teaches a method: what makes the style read, how to construct and print any piece, how to light, frame,
 move, animate and check it. The prompt and the user's references decide the world (section 2): its palette, ground,
 buildings, creatures and weather. You write its pieces yourself. `references/gallery.md` (images in `assets/gallery/`)
-shows five briefs the source game turned into five worlds that share nothing but the style: look at it for the
-quality bar and the range, never for content. The code in `assets/` is plumbing you may import (paper, cards, the
-layered print, hinges, light, lens, the walk field, life) plus worked examples from one countryside world to read,
-never a catalogue of parts.
+shows five briefs the source game turned into five worlds that share nothing but the style, and sixteen direction
+frames of other subjects and kinds of work (`assets/gallery/range/`): look at it for the quality bar and the range,
+never for content. The code in `assets/` is plumbing you may import (paper, cards, the layered print, hinges, light,
+lens, the walk field, life) plus worked examples from one countryside world to read, never a catalogue of parts.
 
 ## 1. The material model (what makes it read as paper)
 
@@ -40,20 +40,21 @@ Get these right on every run; each line says why. Details and more numbers live 
    from sculpted volume. Card thickness 1.5-3 % of the hero's height. A zero-thickness plane reads as a sticker, a
    thick one as foam board. Every piece is one of a few STRUCTURE TYPES, or a composition of them
    (`structures.md`): a card, layered cards, the cross family (full, half, quarter, V-fold), a folded volume (a box
-   or a prism on any plan), built ground, the printed page. Extend them, combine them, or define your own when the
-   project needs one (`structures.md` section 11). Volume comes from crossing: anything upright and round
-   the hero walks around (trees, palms, cacti, posts, tents) is two printed planes slotted at 90 deg; low things
-   (grass, bushes, rocks) are single or layered cards facing the camera.
+   or a prism on any plan), a stepped stack of die-cut layers (a relief, an emblem), a laminated cutout of
+   transparent art, built ground, the printed page. Extend them, combine them, or define your own when the project
+   needs one (`structures.md` section 11). Volume comes from crossing and folding: anything upright and round
+   (trees, palms, cacti, posts, tents) is two printed planes slotted at 90 deg; buildings are folded volumes, never
+   a flat standee where a 3D structure belongs; low things (grass, bushes, rocks) are single or layered cards facing
+   the camera.
 2. **Dead matte.** Diffuse light only, soft terminator (wrap ~0.3), no specular, no reflections, no gloss. Clipped
    pixels under ~1 % (only small lit panes may clip). Any sheen at grazing angles reads as plastic or wet.
-3. **One warm low key, soft coloured shadows.** Key from the side, 45-65 degrees off the camera axis, 45-55 degrees
-   up (20-35 only at golden hour and dusk) and a little toward the camera, so shadows fall sideways and behind, where
-   the camera sees them. A frontal fill at ~1/4-1/3 of the key keeps
-   camera-facing cards from going grey. Shadows are crisp where a card meets the ground and widen with the gap
-   (penumbra ~0.2-0.3 x gap). Their hue comes from the world: a warm amber on warm ground by day, lilac-blue on snow,
-   a deep teal under water, navy at night. Never grey or black shadows,
-   never a coloured fog or filter over the frame. Every standing piece visibly touches the ground (contact
-   darkening); check the shadows with the key alone (`look.md` section 8b).
+3. **One low key from the side, soft coloured shadows.** The key (warm by day) comes 45-65 degrees off the camera
+   axis and 45-55 degrees up (20-35 only at golden hour and dusk), a little toward the camera, so shadows fall
+   sideways and behind, where the camera sees them. A frontal fill at ~1/4-1/3 of the key keeps camera-facing cards
+   from going grey. Shadows are crisp where a card meets the ground and widen with the gap (penumbra ~0.2-0.3 x
+   gap). Their hue comes from the world: a warm amber on warm ground by day, lilac-blue on snow, a deep teal under
+   water, navy at night. Never grey or black shadows, never a coloured fog or filter over the frame. Every standing
+   piece visibly touches the ground (contact darkening); check the shadows with the key alone (`look.md` section 8b).
 4. **Every print is a small layered paper collage.** Inside each chunky silhouette: 3-5 inks in 3+ value steps plus
    one ornament, laid as cut layers back to front on a base sheet with one quiet fibre (never plush felt or a weave):
    structure first (limbs, tiers, shingle rows, frames, panels, a band), then bold motifs that CONTRAST with the base
@@ -63,17 +64,17 @@ Get these right on every run; each line says why. Details and more numbers live 
    under ~2-3 % of the piece, motifs big and countable (a tree crown: 15-25 leaves, each ~1/7 of its width). Printed
    illustration was the source project's biggest quality jump. Kit: `P.layer`, `P.parts`, `drawnPiece`, `P.marks`,
    `P.rim`.
-5. **The cut edge.** A thin dark-brown line right at the silhouette (the card's thickness and printed outline, ~1.5-2.5
-   px on screen), and a pale highlight just inside it only on the edges that face the light. Never an even pale or
-   white band all round (a sticker halo), never glowing, never torn. A fold is not a cut: hinge bases and panel joins
-   get no edge. No card is ever seen edge-on as a knife-thin sliver.
+5. **The cut edge.** A thin dark-brown line right at the silhouette (the card's thickness and printed outline,
+   ~1.5-2.5 px on screen), and a pale highlight just inside it only on the edges that face the light. Never an even
+   pale or white band all round (a sticker halo), never glowing, never torn. A fold is not a cut: hinge bases and
+   panel joins get no edge. No card is ever seen edge-on as a knife-thin sliver.
 6. **A macro lens looking down into the world.** Long lens (24-32 degree vertical FOV), camera 40-55 degrees down, and
    the printed ground runs past every edge of the frame: no horizon, sky, backdrop, book edge or table in view (unless
-   the brief is literally a book or a page inside a UI). One sharp band across the hero's scene (~36-45 % of the
+   the brief is literally a book or a page inside a UI). One sharp band across the subject's scene (~36-45 % of the
    frame looks crisp; `measure.py` focusHeight reads ~0.55-0.75, the source game's frames 0.67-0.72), blur growing
-   above and below to 12-18 px radius at 1080p, driven by depth as well as screen height. Big
-   blurred pieces overlapping the bottom edge sell the miniature scale. These numbers are for 16:9; any other frame (a
-   9:16 Reel, a square post, 4K) keeps the lens on its short side and the harness reframes it (`formats.md`).
+   above and below to 12-18 px radius at 1080p, driven by depth as well as screen height. Big blurred pieces
+   overlapping the bottom edge sell the miniature scale. These numbers are for 16:9; any other frame (a 9:16 Reel, a
+   square post, 4K) keeps the lens on its short side and the harness reframes it (`formats.md`).
 7. **The brief's own palette, built the paper way.** Derive the colours from your subject, mood and time of day
    (`palettes.md` section 3): never the example scene's or the gallery's hexes as they are (blind tests copied
    the example's roofs and greens into a space station). What stays: one lead family the pieces carry, on a pale,
@@ -87,28 +88,32 @@ Get these right on every run; each line says why. Details and more numbers live 
    the frame (`measure.py --palette`).
 8. **Dense, chunky, readable.** A full model world, not props on a plain: 100-250 pieces of ~20 kinds in frame (a
    crossed tree or a stacked bush is one piece; the source game's gameplay frames hold ~270-320 standing CARDS:
-   `__papercraft.cards()` counts yours in 3D) in tight groups of 4-8 DIFFERENT pieces (a reef: a coral head, sponges, kelp, a fish; a station:
-   crates, a pipe run, a lamp, a robot), at most ~3 identical props in view, the sharp band packed (`measure.py` barePct <= ~55) and the open ground
-   mostly outside it (its leading line and a few clearings; water only if the brief has it). The ground stays flat: height comes from nested parallel cards
-   (3-5 curved sails stepped ~10-15 % in value: hills, dunes, banks, drifts) and outcrops, never a raised block of
-   terrain (`mechanisms.md` section 8). The hero is the scale figure (3.6 units in 3D, ~3.2 in 2D; a place-only brief
-   keeps a few figures), 6-10 % of a 16:9 frame's height: a small 3D paper MODEL (~10-20 cards) that reads from every side
-   and turns to face the way it walks, limbs swinging with the distance walked, never one flat card; a readable face,
-   costume detail, toy proportions, colours that contrast with the ground, in the sharp band; no card of him cuts into
+   `__papercraft.cards()` counts yours in 3D) in tight groups of 4-8 DIFFERENT pieces (a reef: a coral head, sponges,
+   kelp, a fish; a station: crates, a pipe run, a lamp, a robot), at most ~3 identical props in view, the sharp band
+   packed (`measure.py` barePct <= ~55) and the open ground mostly outside it (its leading line and a few clearings;
+   water only if the brief has it). The ground stays flat: height comes from nested parallel cards (3-5 curved sails
+   stepped ~10-15 % in value: hills, dunes, banks, drifts) and outcrops, never a raised block of terrain
+   (`mechanisms.md` section 8). The hero is the scale figure (3.6 units in 3D, ~3.2 in 2D), 6-10 % of a 16:9 frame's
+   height; a diorama, a scrolling page or a film may have none (the 3D harness runs without `setHero()`; the 2D one
+   needs a hero). When there is one: a small 3D paper MODEL (~10-20 cards) that reads from every side and turns to
+   face the way it walks, limbs swinging with the distance walked, never one flat card; a readable face, costume
+   detail, toy proportions, colours that contrast with the ground, in the sharp band; no card of him cuts into
    another, standing or walking (`mechanisms.md` section 12, `motion.md` section 8; in 2D a puppet of cards that
-   mirrors to turn). Pieces are chunky against him (`worlds.md` sections 8-9); tall landmarks are
-   layered flats cut by the top edge, unless their top is the point (a crater, a spire): then nearer and toy-scale,
-   top in frame. The dressing comes from what the place would hold; counts the brief gives hold ("a few" = 2-4).
+   mirrors to turn). Pieces are chunky against him (`worlds.md` sections 8-9); tall landmarks are layered flats cut
+   by the top edge, unless their top is the point (a crater, a spire): then nearer and toy-scale, top in frame. The
+   dressing comes from what the place would hold; counts the brief gives hold ("a few" = 2-4).
 9. **What is walked on, under or into is BUILT in 3D, never a standing flat.** A standing card is only for things
-   seen from the front and walked around (bushes, props, critters, far backdrop hills; trees are crosses, law 1). Walkable height is an
-   OPEN construction: a deck on posts, ramps with a crown panel between leaning sides, thin treads on stepped
-   stringers (rise <= ~1/8 of the hero), never a solid block for natural terrain. Anything entered is a box fold with
-   an opening; floors, water and regions are printed into the page. The walk logic reads the same construction: feet
-   on the deck; rails, walls and water stop the hero (`WalkField`, `mechanisms.md` section 14).
+   seen from the front and walked around (bushes, props, critters, far backdrop hills; trees are crosses, law 1).
+   Walkable height is an OPEN construction: a deck on posts, ramps with a crown panel between leaning sides, thin
+   treads on stepped stringers (rise <= ~1/8 of the hero), never a solid block for natural terrain. Anything entered
+   is a box fold with an opening; floors, water and regions are printed into the page. The walk logic reads the same
+   construction: feet on the deck; rails, walls and water stop the hero (`WalkField`, `mechanisms.md` section 14).
 10. **Paper moves by rotating about creases.** Rise fast with 8-15 % overshoot and a 2-3 cycle quiver, still by ~1 s;
    fall softer with one small slap on the ground; stagger parts 0.05-0.1 s; nothing scales, stretches or fades in.
    Continuous motion (idle sway, walk bob) stays subtle: users cut critic-requested bob by 2-3x.
-11. **Sound, if any, is soft, low, dull and sparse.** Noise-based flaps, one per gesture, at least ~0.5 s apart.
+11. **Sound, if any, is soft, warm, low and sparse.** Noise-based flaps, one per gesture, at least ~0.5 s apart, and
+   quiet footsteps under a walking hero. Where there is music it leads (paper peak 16-20 dB below it; the kit's felt
+   piano in `lib/paper-music.js`, or the project's own): `sound.md`.
 12. **The world is alive, with the brief's own life.** Choose 3-5 kinds from the environment and the time of day:
    its weather (leaves, snow, petals, rain and mist, dust and gusts, bubbles), its flyers (birds crossing above the
    trees, butterflies at flowers, fireflies over water at night), smoke curling from chimneys, cloud shadows, and
@@ -142,15 +147,19 @@ by its kind:
   subjects, motifs, shapes, palette and mood, and translate each element into paper: a structure type for its form, a
   layered print for its surface (gradients become a few inks in value steps, gloss goes matte, fine detail becomes a
   few big motifs), this world's light for its lighting. Keep what makes the user's own designs recognisable (a
-  character, a product, a brand: its colours, proportions and signature marks).
+  character, a product, a brand: its exact colours, proportions and signature marks).
+- **The user's own logo or mark,** built in paper, keeps its exact silhouette and holes: never add rings, halos,
+  borders or ornaments nobody asked for, and run `P2.validateOutline()` on hand-made curves so no contour crosses
+  itself or spikes.
 - **A mixed board:** sort it first (this image gives the colours, that one the buildings, a third the craft), and
   settle conflicts between references, or with the prompt, before you build (`process.md` section 2).
 - Never copy third-party characters, logos, text or whole compositions, and never ship third-party images (keep
   references in a folder that does not ship). The gallery stays the quality bar, never a reference for content.
 
 **Image generation, only when the user asks for it.** Use an image tool when one is available and the user says to
-use it; otherwise stay procedural (say so if they asked and there is none), and never wait on it. It makes
-references that set the direction; it does not replace the build (`image-gen.md` goes medium by medium):
+use it; otherwise stay procedural (say so if they asked and there is none). Never wait on it: if a call fails, stay
+procedural; everything in this skill is reachable without it. It makes references that set the direction; it does
+not replace the build (`image-gen.md` goes medium by medium):
 
 - **What to make:** a few direction frames of the project in this style, at the camera the work will use (a scene at
   its play camera, a page flat and frontal, the key shots of a video), for the user to choose from (the chosen one
@@ -160,8 +169,10 @@ references that set the direction; it does not replace the build (`image-gen.md`
 - **How to ask:** one style description in this skill's words for the whole set (matte card, crisp cut edges lit on
   one side, layered printed pieces, soft shadows coloured by the world, the medium's camera, the ground or page past
   every edge), one subject line per image with its palette and light from the brief, and what must not appear (sky
-  or horizon, a table or page edge, gloss, text). When the tool takes images as inputs, give each a role (style,
-  layout, palette and mood) and say what to take from it.
+  or horizon, a table or page edge, gloss, text). When the tool takes images as inputs, always attach 2-3 gallery
+  stills as style inputs, craft only (words alone return sculpted felt toys: `image-gen.md` section 4), and reject
+  any frame that is not thin printed cards. Give each input a role (style, layout, palette and mood) and say what
+  to take from it.
 - **How to judge:** look at every output, regenerate sparingly and keep a short log (prompt, inputs, verdict). Reject
   the usual drifts: soft, felt-like paper, deckled sheets where the work wants crisp card, a glossy CG render, a page
   on a table, flat vector art, a pale sticker rim round every piece, one ornament on everything. A target generated
@@ -182,7 +193,7 @@ BRIEF      the prompt's place, culture, season, weather, time, scale and mood wo
            (palette, materials, motifs, light, density, motion)
 SUBJECT    the world and its twist (what only this project has), and what the reader looks at first
 STOCK      paper per layer (cardstock / kraft / watercolour / construction / tissue / corrugated), fibre amount
-PALETTE    4-7 hex DERIVED from this brief (palettes.md section 3), with roles: ground light/dark, lead family,
+PALETTE    8-12 hex DERIVED from this brief (palettes.md section 3), with roles: ground light/dark, lead family,
            2 contrasting accents, ink, shadow tint, haze; none copied from the example
 LIGHT      key colour + direction (azimuth / elevation deg), frontal fill ratio, shadow tint, night / practical lights
 LENS       fov, pitch (40-55), sharp band % of frame, max blur px@1080, what overlaps the bottom edge
@@ -204,14 +215,23 @@ QA         the frames / sizes you will capture and what each must show
 
 Read only what the task needs, when it needs it (all files in `references/`). The minimum before the first frame:
 
-- **3D scene or game:** start from `assets/templates/popup-3d/` (`harness.js` as is + your own `scene.js`); read
-  `gallery.md` 1, `structures.md` 0-4 (they point into `mechanisms.md` for details), `three-js.md` 1, 3, 8,
+- **3D scene, diorama or walking game:** start from `assets/templates/popup-3d/` (`harness.js` as is + your own
+  `scene.js`; `H.setHero()` only if someone walks). Read `gallery.md` 1, `structures.md` 0-4, `three-js.md` 1, 3, 8,
   `procedural-art.md` 3, `look.md` 8b, 11, `palettes.md` 3, and for a walking hero `mechanisms.md` 12, 14.
+- **A 3D world you scroll or travel through** ("a site that scrolls through five worlds", a showcase, a product
+  reveal): the same 3D path with the camera on a controller (`motion.md` section 11: `H.setCameraController`, `roam`,
+  `glideSchedule`). Never flatten a brief for a 3D world into HTML cards.
+- **Film, trailer, Reel or any video:** `motion.md` section 11 (the film wiring: `autoOpen: false`, `H.cue`, `H.fold`,
+  the camera controller, `checkContinuity`, light over time with `H.mixMood`; and how a film differs from the game: a
+  moving camera, a bigger subject, more going on), `formats.md` (sizes, safe areas, export) and `sound.md`, on the 3D
+  path. `capture.py <project> shot:time=12.5` is a still at a film time. `python scripts/capture.py <project>
+  clip:timeline=10,60 --size reel --audio --verify-frames 4` renders it on the fixed clock, mixes the paper sounds
+  with the score and checks the MP4. The 2D path films only a walking hero's world, with no scripted camera and no
+  `--audio`.
 - **2D scene, illustration, side-scroller:** start from `assets/templates/popup-2d/` (`harness-2d.js` as is + your
-  own `scene.js`); the same reading with `web-2d.md` sections 2-3 instead of `three-js.md`.
-- **Web page or app UI, HUD, menus:** `paper-ui.md`, `web-2d.md` sections 4-5 (CSS and SVG), `palettes.md` 3.
-- **Video:** `motion.md` section 11 and `formats.md` (sizes, vertical safe areas, export), then the 2D or 3D path;
-  `scripts/capture.py <project> clip:video=8,30 --size reel` renders it on the fixed clock and encodes the MP4.
+  own `scene.js`; it needs a hero); the same reading with `web-2d.md` sections 2-3 instead of `three-js.md`.
+- **Web page or app UI, HUD, menus** (cards, buttons, navigation, modals, forms): `paper-ui.md`, `web-2d.md` sections
+  4-5 (SVG and CSS), `palettes.md` 3.
 - **A non-browser engine** (Godot, Unity, Unreal, Blender): `engines.md` (porting notes, untested) and
   `scripts/paper_textures.py` for texture files.
 
@@ -219,16 +239,16 @@ Then, as questions come up:
 
 | Question | Read | Kit |
 |---|---|---|
-| Your pieces: props, characters, buildings, creatures, machines, plants | `procedural-art.md` | `printCard` + `P.layer` / `P.parts` or `drawnPiece` |
-| Which structure type builds a thing (trees, rocks, buildings, water, ridges, domes...) | `structures.md` | `structures.html` sampler; `crossCard`, `fanCard`, `prismFold`, `H.stack`, `H.dome`, `water` |
+| Your pieces: props, characters, buildings, creatures, machines, plants | `procedural-art.md` | `printCard` + `P.layer` / `P.parts`, `drawnPiece`; outlines: `shape.*`, `validateOutline` |
+| Which structure type builds a thing (trees, rocks, buildings, logos, cutouts, water, domes...) | `structures.md` | `structures.html` sampler; `crossCard`, `fanCard`, `boxFold`, `prismFold`, `extrudedLayerStack`, `imageCard`, `H.stack`, `H.dome`, `water` |
 | Your constructions in detail: crosses, box folds, platforms, layered flats, bridges, piers, stairs | `mechanisms.md` (14: built ground) | `hinge`, `crossCard`, `layeredCard`, `boxFold`, `platform`, `WalkField` |
-| Timing, springs, puppets, camera | `motion.md` | `FlapSpring`, `windSway`, `FixedClock` (`lib/paper-motion.js`) |
-| Endless worlds, a camera that follows the hero, composition | `worlds.md` | the fill in the example `scene.js` |
+| Timing, springs, puppets, the camera; films and scripted cameras | `motion.md` (11: film wiring) | `FlapSpring`, `windSway`, `FixedClock`, `glideSchedule`, `polarCameraPos`, `checkContinuity`; `H.cue`, `H.fold`, `H.setCameraController` |
+| Endless worlds, a camera that follows the hero, composition | `worlds.md` | `walkArea` / `camBox`, `H.inReach`, `H.printed`, the fill in the example `scene.js` |
 | Seeing the range; turning a prompt and references into a world | `gallery.md`, section 2 | `assets/gallery/*.jpg` |
-| Another frame: 9:16, square, 4:5, 4K, ultrawide, a phone page; platform sizes, safe areas, video export | `formats.md` | `?size=` `?aspect=` `?safe=`; `capture.py --size`, `video=` |
-| References made with an image tool the user asked for, in any medium | section 2, then `image-gen.md` | `scripts/measure.py --target` |
-| Weather, flyers, smoke, creatures that move | `motion.md` (12: a living world) | `lib/paper-life.js` |
-| Colour; sound and music | `palettes.md`; `sound.md` | `assets/lights.json`; `lib/paper-sound.js` |
+| Another frame: 9:16, square, 4:5, 4K, ultrawide, a phone page; platform sizes, safe areas, video export | `formats.md` | `?size=` `?aspect=` `?safe=`; `capture.py --size`, `timeline=`, `video=`, `route=`, `--audio` |
+| References and cutout sheets made with an image tool (only when asked) | section 2, then `image-gen.md` | `scripts/extract_cutouts.py`, `imageCard`, `scripts/measure.py --target` |
+| Weather, flyers, smoke, bursts, creatures that move | `motion.md` (12: a living world) | `lib/paper-life.js` |
+| Colour; paper sounds and music | `palettes.md`; `sound.md` | `assets/lights.json`; `lib/paper-sound.js`, `lib/paper-music.js` |
 | Planning, measuring, critiquing, finishing | `process.md` | `scripts/measure.py`, `scripts/ab_sheet.py` |
 
 **Write your own pieces.** `assets/lib/` is plumbing to import (copying it: `three-js.md` section 1, `web-2d.md`
@@ -243,27 +263,27 @@ becomes code, never assemble a new subject from those parts; replace the scene, 
    image (user-supplied or generated), measure it with `scripts/measure.py`; otherwise the spec is the target.
 2. **Prove the material on one test card** before building content: one printed card standing on a printed ground,
    under the final light and lens (3D: `?test`, once your scene branches on `H.flags.TEST`: `three-js.md` section 1).
-   Check: matte, a contact shadow in the world's colour, the cut edge (dark line + lit-side highlight), fibre visible but quiet, sharp
-   band and blur where expected. Fix here; every later asset inherits it.
+   Check: matte, a contact shadow in the world's colour, the cut edge (dark line + lit-side highlight), fibre visible
+   but quiet, sharp band and blur where expected. Fix here; every later asset inherits it.
 3. **Design and build your pieces, then the world.** List the 15-25 kinds of piece your subject needs and design each:
    silhouette (chunky, convex lobes, flat base), structure type (`structures.md` section 0) and print (law 4,
-   `procedural-art.md` section 3); the hero as in law 8. Prove two or three kinds on the test card, then landmarks and the leading line by
-   hand, then the fill of groups and clearings (law 8). Build what the hero walks on, under or into first (law 9) and
-   wire its walk surface (`WalkField`) before dressing around it.
+   `procedural-art.md` section 3); the hero, if there is one, as in law 8. Prove two or three kinds on the test card,
+   then landmarks and the leading line by hand, then the fill of groups and clearings (law 8). Build what is walked
+   on, under or into first (law 9) and wire its walk surface (`WalkField`) before dressing around it.
 4. **Motion.** Hinges and springs from `motion.md`. Rise in flat-stack order: the card lying on top when folded rises
    first (3D cards fold back, so the nearest first; 2D cards fold forward, so the farthest first), staggered; closing
    is the exact reverse.
 5. **Sound** (optional) from `sound.md`; keep it quieter and sparser than feels necessary.
 6. **Capture deterministically.** Seed every random choice and drive motion from a fixed-step clock, never wall time.
    Both harnesses expose `restart()` (everything flat, t = 0), `step(seconds)` and `resume()`; every review frame is
-   `restart(); step(T)`, never a grab of the free-running loop. Capture the settled hero frame, a mid-rise frame and
-   a wide frame, at every deliverable's own size (`capture.py --size reel`; `formats.md`).
+   `restart(); step(T)`, never a grab of the free-running loop. Capture the settled frame, a mid-rise frame and a
+   wide frame, at every deliverable's own size (`scripts/capture.py`: section 8; `formats.md`).
 7. **Measure, then critique.** `python scripts/measure.py frame.png [--target target.png]` is a gate, not proof
    (profiles `storybook` by day, `dusk` for golden hour and dusk, `night`, `flat`; `process.md` section 6). Then
    compare blind against the target (`scripts/ab_sheet.py`), fix the top three problems, and repeat at most three
-   rounds (no target: judge by section 8 and `look.md` sections 11-12). Refine rather than add. With a time box, reach the
-   first full frame by half of it and spend the rest on these rounds (stopping at the first frame left stamped
-   clones, straight ground edges and an empty middle).
+   rounds (no target: judge by section 8 and `look.md` sections 11-12). Refine rather than add. With a time box,
+   reach the first full frame by half of it and spend the rest on these rounds (stopping at the first frame left
+   stamped clones, straight ground edges and an empty middle).
 8. **Report honestly** what was verified (with the frames) and what was not.
 
 ## 6. Fake-paper tells (ban list)
@@ -280,14 +300,15 @@ sound) is in one table: `references/look.md` section 11; density and sizes again
 ## 8. Check the render
 
 After every visual change, capture the same frames and look at them at 100 % and at 3x crops (3D:
-`python scripts/capture.py <project> overview midrise key walk=...` serves, captures, walks and reports the build and
-every page error):
+`python scripts/capture.py <project> overview midrise key walk=...` serves, captures, walks and reports the build, the
+hero's clipping check and every page error; frames land in `<project>/frames/`, 1600x900 unless `--size` says
+otherwise):
 
 - [ ] Ground past every edge; no sky, horizon, table or book edge; the camera 40-55 degrees down.
 - [ ] Every deliverable format captured at its own size: the same world, the subject in frame (in a 9:16 frame
       inside the platform's safe area: `?safe=all`), the far rows of a tall frame filled (`formats.md`).
 - [ ] A full model world: groups of different chunky pieces, the sharp band packed (barePct <= ~55), open ground
-      mostly outside it, a leading line, the hero off-centre, big blurred pieces at the bottom edge.
+      mostly outside it, a leading line, the subject off-centre, big blurred pieces at the bottom edge.
 - [ ] Upright round things are slotted crosses, both planes printed, none edge-on; low things are single cards facing
       the camera.
 - [ ] No stamped repeats: 4-6 seeded variants per kind (outline, size +-15 %, print), twins 3+ piece-widths apart,
@@ -297,11 +318,12 @@ every page error):
       line unless it has two routes; muted paper greens, cream whites, dark inks, no colour fog.
 - [ ] No straight ground edge over ~15 % of the frame width: leading lines bend twice in frame, region borders are
       torn with a pale fibrous fringe; the middle gets volume from nested landforms (3-5 cards stepped in value).
-- [ ] The hero is a 3D paper model that reads from every side and turns to face the way it walks: striding limbs, a
-      readable face, costume detail, toy proportions, colours that contrast with the ground.
-- [ ] No card cuts into another: the hero standing and walking (`capture.py` prints "hero: no card cuts into
-      another"; `__papercraft.clips()`), and every moving construction at a few poses (`cardClips`); no flicker where
-      two cards overlap (`mechanisms.md` sections 1 and 12).
+- [ ] If there is a hero: a 3D paper model that reads from every side and turns to face the way it walks (striding
+      limbs, a readable face, costume detail, toy proportions, colours that contrast with the ground), and no card of
+      him cuts into another, standing or walking (`capture.py` prints "hero: no card cuts into another";
+      `__papercraft.clips()`).
+- [ ] No card cuts into another in any moving construction, at a few poses (`cardClips`); no flicker where two cards
+      overlap (`mechanisms.md` sections 1 and 12).
 - [ ] Nothing glossy; under ~1 % clipped pixels; the darkest 20 % take the world's shadow colour, never neutral grey.
 - [ ] A contact shadow under every standing piece; cast shadows where the camera sees them; camera-facing cards not
       grey.
@@ -309,22 +331,29 @@ every page error):
       stair-stepped edges, nothing along folds.
 - [ ] Every print a layered collage (3+ values, lip + short shadow, an ornament, a contrasting accent) designed for
       this subject; never a flat fill, a thin ink drawing or a fill with noise, never a countryside example.
-- [ ] Everything walked on, under or into is built open and walked by the hero: feet on the surface, never inside a
-      rail or floating; water and walls stop him.
-- [ ] One sharp band across the subject (~36-45 % of the frame looks crisp; focusHeight ~0.55-0.75), top and bottom
-      blurred; nothing important blurred,
-      the hero always inside it.
-- [ ] Motion: hinge rotation only; one overshoot, settled by ~1 s; nothing pops in. Sound (if any) quieter than the
-      music, never constant.
+- [ ] Everything walked on, under or into is built open; if there is a hero, he walks it: feet on the surface,
+      never inside a rail or floating; water and walls stop him.
+- [ ] One sharp band across the subject (law 6), top and bottom blurred; nothing important blurred, the hero (if
+      any) always inside it.
+- [ ] Motion: hinge rotation only; one overshoot, settled by ~1 s; nothing pops in; a scripted camera or actor passes
+      `checkContinuity()` (no teleports). Sound (if any): never constant; with music, the music leads (paper peak
+      16-20 dB below it) and the paper is warm (>= ~80 % of its energy under 1.5 kHz: `capture.py --audio` prints it).
+- [ ] A user's logo or mark keeps its exact proportions, with nothing added round it, and passes `validateOutline()`.
 - [ ] The world is alive with its own life: 3-5 kinds from this environment (weather, flyers, smoke, creatures with
       a behaviour), small and slow, never filling the air; a still frame shows a few of them.
+- [ ] With a target or reference frame: each review frame beside it and `measure.py frame --target target` run; the
+      subject's size in the frame, the brightness, the saturation and the sharp band within reach of the target's.
+      Passing gates do not show this (`process.md` section 6).
+- [ ] A film: a still of every shot (`time=`) checked as above; a camera move in every shot unless the brief asks
+      for a locked frame; holds of 2-3 s at most; on a 2 fps contact sheet no two neighbours alike (`motion.md`
+      section 11).
 
 ## 9. Gotchas
 
 - **Clock, fps, build cost:** clamp the real-time step to [0, 0.05] s (a negative step runs every spring
-  backwards); measure fps in the live loop, never by timing `step()`; a layered print costs ~10-30 ms
-  (`three-js.md` sections 8-10, `web-2d.md` section 3).
-- **Image generation only when the user asks** and a tool is available (section 2, `image-gen.md`). Never block on
-  it; everything in this skill is reachable procedurally.
+  backwards); measure fps in the live loop, never by timing `step()`; a print costs pixels times layers (most 2-8 ms,
+  a big many-layered one 50-100 ms: `three-js.md` sections 8-10, `web-2d.md` section 3).
 - **Taste comes from a human.** Metrics and critics push toward more (more bob, more sound, more detail); the owner
-  of the source project kept asking for calmer, quieter, subtler. When in doubt, take something away.
+  of the source project kept asking for calmer, quieter, subtler in the game. When in doubt there, take something
+  away. Calm is not empty: the same owner rejected a film for a small, sparse, slow scene and asked for "a dynamic
+  scene with things going on, cinematic camera motions". The brief and the user's word set the level.

@@ -66,18 +66,22 @@ const radialTexture = (soft = 0.55, asAlphaMap = false) => {
 /**
  * scene, camera: three.js. heroHeight: H in world units. wind: the prevailing direction on the page [x, z].
  * box: the volume (in H) around the update centre in which weather and air live and wrap (default ~2x the frame).
+ * groundY: optional (x, z) => y terrain height callback for undulating/multi-altitude worlds (defaults to 0).
  */
-export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [0.94, 0.34], box = { w: 34, d: 30, h: 7.5 } } = {}) {
+export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [0.94, 0.34], box = { w: 34, d: 30, h: 7.5 }, groundY = null } = {}) {
   const H = heroHeight, wl = Math.hypot(wind[0], wind[1]) || 1, WX = wind[0] / wl, WZ = wind[1] / wl;
   const BW = box.w * H, BD = box.d * H, BH = box.h * H;
   const group = new THREE.Group(); group.name = 'life'; scene.add(group);
   const kinds = [], centre = new THREE.Vector3(), _m = new THREE.Matrix4(), _p = new THREE.Vector3(), _q = new THREE.Quaternion(),
     _s = new THREE.Vector3(), _e = new THREE.Euler(), _o = new THREE.Object3D(), _c = new THREE.Color(), _w = new THREE.Vector3(), _up = new THREE.Vector3();
+  // the ground's height under (x, z); a callback that returns nothing (off the terrain) counts as 0
+  const gy = (x, z) => { const y = groundY ? groundY(x, z) : 0; return Number.isFinite(y) ? y : 0; };
   let night = 0, time = 0, nKind = 0;
   const factor = (k) => lerp(k.day ?? 1, k.night ?? 1, night);
   const pool = (geo, n, { glow = 0, map = null } = {}) => {
+    // Dead-matte Lambert (no GGX specular sheen, matching SKILL.md law 2) or unlit emissive for glowing fireflies/embers
     const mat = glow ? new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, toneMapped: false })
-      : new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, side: THREE.DoubleSide, map });
+      : new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide, map });
     const m = new THREE.InstancedMesh(geo, mat, Math.max(1, n));
     m.frustumCulled = false; m.castShadow = false; m.receiveShadow = false; m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     group.add(m); return m;
@@ -96,7 +100,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
   /** Things that fall and settle: leaves, snow, petals, blossom, ash, confetti; rain with { cut: 'streak', streak: true }.
    *  colors: your world's (the default is plain paper). */
   function fallers({ count = 40, colors = ['#efe6d2'], cut = 'leaf', size = [0.22, 0.33], fall = [0.7, 1.2], sway = 0.55, tumble = 1.5, land = 9, wind: ws = 0.9, streak = false, ground = 0, day = 1, night: nt = 1 } = {}) {
-    const mesh = pool(shapeGeo(cut), count), S = new Float32Array(count * 9); // bx, y, bz, vy, phase, size, angle, landT, axisSeed
+    const mesh = pool(shapeGeo(cut), count), S = new Float32Array(count * 9); // bx, yRel, bz, vy, phase, size, angle, landT, axisSeed
     const spawn = (r, i, top) => { const o = i * 9; S[o] = centre.x + (r() - 0.5) * BW; S[o + 2] = centre.z + (r() - 0.5) * BD; S[o + 1] = top ? BH * lerp(0.75, 1, r()) : BH * r(); S[o + 3] = pick(r, fall) * H; S[o + 4] = r() * 6.28; S[o + 5] = pick(r, size) * H; S[o + 6] = r() * 6.28; S[o + 7] = -1; S[o + 8] = r(); };
     return add({ day, night: nt, mesh, reset(r) { this.r = r; colourAll(mesh, count, colors, r); for (let i = 0; i < count; i++) { spawn(r, i, false); if (!streak && r() < 0.25) { S[i * 9 + 1] = ground; S[i * 9 + 7] = r() * land; } } },
       update(dt) {
@@ -111,7 +115,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
           S[o] = wrap(S[o], centre.x, BW); S[o + 2] = wrap(S[o + 2], centre.z, BD);
           const landed = S[o + 7] >= 0, k = landed ? Math.max(0, 1 - S[o + 7] / land) : 1;
           const x = S[o] + (landed ? 0 : sway * H * Math.sin(S[o + 4])), z = S[o + 2] + (landed ? 0 : sway * 0.6 * H * Math.cos(S[o + 4] * 0.7));
-          _p.set(x, S[o + 1], z);
+          _p.set(x, gy(x, z) + S[o + 1], z);
           if (streak) { _e.set(0, Math.atan2(camera.position.x - x, camera.position.z - z), -0.12 * ws * Math.sign(WX || 1)); _q.setFromEuler(_e); _s.set(S[o + 5], landed ? 0 : S[o + 5], 1); }
           else if (landed) { _e.set(-Math.PI / 2, 0, S[o + 6]); _q.setFromEuler(_e); _s.setScalar(S[o + 5] * k); }
           else { _e.set(S[o + 6] * (0.6 + S[o + 8]), S[o + 6], S[o + 6] * 0.4); _q.setFromEuler(_e); _s.setScalar(S[o + 5]); }
@@ -123,7 +127,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
 
   /** Things that hang in the air: dust, pollen, spores; bubbles and embers with rise > 0 (embers glow > 0). */
   function motes({ count = 50, colors = ['#f1dfb6'], cut = 'disc', size = [0.04, 0.065], speed = [0.2, 0.5], height = [0.25, 2.5], rise = 0, glow = 0, near = 8, day = 1, night: nt = 1 } = {}) {
-    const mesh = pool(shapeGeo(cut), count, { glow }), S = new Float32Array(count * 7); // x, y, z, heading, speed, size, phase
+    const mesh = pool(shapeGeo(cut), count, { glow }), S = new Float32Array(count * 7); // x, yRel, z, heading, speed, size, phase
     return add({ day, night: nt, mesh, reset(r) { colourAll(mesh, count, colors, r, glow || 1); for (let i = 0; i < count; i++) { const o = i * 7; S[o] = centre.x + (r() - 0.5) * BW; S[o + 1] = pick(r, height) * H; S[o + 2] = centre.z + (r() - 0.5) * BD; S[o + 3] = r() * 6.28; S[o + 4] = pick(r, speed) * H; S[o + 5] = pick(r, size) * H; S[o + 6] = r() * 6.28; } },
       update(dt) {
         const n = (mesh.count = Math.round(count * factor(this))), lo = height[0] * H, hi = height[1] * H;
@@ -132,7 +136,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
           S[o] = wrap(S[o] + (Math.cos(S[o + 3]) * S[o + 4] + WX * 0.15 * H) * dt, centre.x, BW);
           S[o + 2] = wrap(S[o + 2] + (Math.sin(S[o + 3]) * S[o + 4] + WZ * 0.15 * H) * dt, centre.z, BD);
           S[o + 1] += (rise * H + Math.sin(S[o + 6] * 1.3) * 0.08 * H) * dt; if (S[o + 1] > hi) S[o + 1] = lo; if (S[o + 1] < lo) S[o + 1] = hi;
-          _p.set(S[o], S[o + 1], S[o + 2]);
+          _p.set(S[o], gy(S[o], S[o + 2]) + S[o + 1], S[o + 2]);
           const fade = smooth(near * 0.5 * H, near * H, _p.distanceTo(camera.position));      // never a fat blur near the lens
           _s.setScalar(S[o + 5] * fade); mesh.setMatrixAt(i, _m.compose(_p, camera.quaternion, _s));
         }
@@ -160,7 +164,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
           const o = i * 8, t = time, R = roam * H;
           const x = S[o] + R * (Math.sin(t * 0.37 + S[o + 2]) + 0.45 * Math.sin(t * 0.91 + S[o + 3])), z = S[o + 1] + R * (Math.cos(t * 0.29 + S[o + 3]) + 0.45 * Math.sin(t * 0.83 + S[o + 4]));
           const vx = R * (0.37 * Math.cos(t * 0.37 + S[o + 2]) + 0.41 * Math.cos(t * 0.91 + S[o + 3])), vz = R * (-0.29 * Math.sin(t * 0.29 + S[o + 3]) + 0.37 * Math.cos(t * 0.83 + S[o + 4]));
-          const y = S[o + 5] + 0.18 * H * Math.sin(t * 1.7 + S[o + 4]);
+          const y = gy(x, z) + S[o + 5] + 0.18 * H * Math.sin(t * 1.7 + S[o + 4]);
           if (!wings) {
             const pulse = 0.45 + 0.55 * Math.max(0, Math.sin(t * 2.1 + S[o + 2])) ** 2;
             _s.setScalar(S[o + 6] * (0.6 + 0.4 * pulse)); A.setMatrixAt(i, _m.compose(_p.set(x, y, z), camera.quaternion, _s));
@@ -180,7 +184,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
   function flock({ size = 5, every = 30, cross = 15, height = 2.8, span = 56, wing = 0.33, flap = 6.5, colors = ['#f6f1e6', '#e9e2d4'], cut = 'birdWing', gap = 0.9, day = 1, night: nt = 0.35 } = {}) {
     const A = pool(shapeGeo(cut), size), B = pool(shapeGeo(cut, true), size);
     let dir = 0, start = 0, ox = 0, oz = 0, go = false, began = false;
-    return add({ day, night: nt, reset(r) { this.r = r; colourAll(A, size, colors, r); colourAll(B, size, colors, rngOf(this.seed)); start = every * (0.15 + 0.35 * r()); dir = r() * 6.28; go = r() < 1; began = false; },
+    return add({ day, night: nt, reset(r) { this.r = r; colourAll(A, size, colors, r); colourAll(B, size, colors, rngOf(this.seed)); start = every * (0.15 + 0.35 * r()); dir = r() * 6.28; go = r() < factor(this); began = false; },
       update() {
         const r = this.r;
         if (time > start + cross) { start += every * lerp(0.8, 1.2, r()); dir = r() * 6.28; go = r() < factor(this); began = false; }  // at night only some crossings happen
@@ -191,7 +195,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
         const dx = Math.cos(dir), dz = Math.sin(dir), cx = ox + dx * span * H * (u - 0.5), cz = oz + dz * span * H * (u - 0.5);
         for (let i = 0; i < size; i++) {
           const k = i - (size - 1) / 2, back = Math.abs(k) * gap * H, side = k * gap * H * 0.9;
-          const x = cx - dx * back - dz * side, z = cz - dz * back + dx * side, y = height * H + 0.15 * H * Math.sin(time * 0.8 + i);
+          const x = cx - dx * back - dz * side, z = cz - dz * back + dx * side, y = gy(x, z) + height * H + 0.15 * H * Math.sin(time * 0.8 + i);
           const fl = 0.15 + 0.75 * Math.abs(Math.sin(time * flap * Math.PI + i * 1.3));
           setWings(A, B, i, x, y, z, Math.atan2(dx, dz), fl, wing * H);
         }
@@ -224,10 +228,10 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
 
   /** Low soft mist sheets drifting along the wind (a misty forest, a marsh, a cold morning). */
   function mist({ count = 7, size = [5.5, 7.5], y = 0.8, alpha = 0.1, drift = 0.25, color = '#e8ece6', day = 1, night: nt = 1.25 } = {}) {
-    const tex = radialTexture(0.5), items = [];
-    for (let i = 0; i < count; i++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, opacity: alpha, depthWrite: false })); group.add(m); items.push(m); }
-    return add({ day, night: nt, reset(r) { for (const m of items) { m.position.set(centre.x + (r() - 0.5) * BW, y * H * lerp(0.8, 1.2, r()), centre.z + (r() - 0.5) * BD); const s = pick(r, size) * H; m.scale.set(s, s * 0.45, 1); } },
-      update(dt) { const f = factor(this); for (const m of items) { m.position.x = wrap(m.position.x + WX * drift * H * dt, centre.x, BW); m.position.z = wrap(m.position.z + WZ * drift * H * dt, centre.z, BD); m.material.opacity = alpha * f; } } });
+    const tex = radialTexture(0.5), items = [], yRel = [];
+    for (let i = 0; i < count; i++) { const m = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color, transparent: true, opacity: alpha, depthWrite: false })); group.add(m); items.push(m); yRel.push(y * H); }
+    return add({ day, night: nt, reset(r) { for (let i = 0; i < items.length; i++) { const m = items[i], x = centre.x + (r() - 0.5) * BW, z = centre.z + (r() - 0.5) * BD; yRel[i] = y * H * lerp(0.8, 1.2, r()); m.position.set(x, gy(x, z) + yRel[i], z); const s = pick(r, size) * H; m.scale.set(s, s * 0.45, 1); } },
+      update(dt) { const f = factor(this); for (let i = 0; i < items.length; i++) { const m = items[i]; m.position.x = wrap(m.position.x + WX * drift * H * dt, centre.x, BW); m.position.z = wrap(m.position.z + WZ * drift * H * dt, centre.z, BD); m.position.y = gy(m.position.x, m.position.z) + yRel[i]; m.material.opacity = alpha * f; } } });
   }
 
   /** Big soft cloud shadows sliding over the page (a sunny day with clouds; never at night). */
@@ -237,8 +241,65 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
       const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color, alphaMap: tex, transparent: true, opacity: alpha, depthWrite: false }));
       m.rotation.x = -Math.PI / 2; m.renderOrder = -1; group.add(m); items.push(m);
     }
-    return add({ day, night: nt, reset(r) { for (const m of items) { m.position.set(centre.x + (r() - 0.5) * BW * 1.5, 0.02 * H, centre.z + (r() - 0.5) * BD * 1.5); const s = pick(r, size) * H; m.scale.set(s, s * lerp(0.55, 0.8, r()), 1); m.rotation.z = r() * 3; } },
-      update(dt) { const f = factor(this); for (const m of items) { m.position.x = wrap(m.position.x + WX * speed * H * dt, centre.x, BW * 1.5); m.position.z = wrap(m.position.z + WZ * speed * H * dt, centre.z, BD * 1.5); m.material.opacity = alpha * f; m.visible = f > 0.01; } } });
+    return add({ day, night: nt, reset(r) { for (const m of items) { const x = centre.x + (r() - 0.5) * BW * 1.5, z = centre.z + (r() - 0.5) * BD * 1.5; m.position.set(x, gy(x, z) + 0.04 * H, z); const s = pick(r, size) * H; m.scale.set(s, s * lerp(0.55, 0.8, r()), 1); m.rotation.z = r() * 3; } },
+      update(dt) { const f = factor(this); for (const m of items) { m.position.x = wrap(m.position.x + WX * speed * H * dt, centre.x, BW * 1.5); m.position.z = wrap(m.position.z + WZ * speed * H * dt, centre.z, BD * 1.5); m.position.y = gy(m.position.x, m.position.z) + 0.04 * H; m.material.opacity = alpha * f; m.visible = f > 0.01; } } });
+  }
+
+  /**
+   * Pooled deterministic 3D cut-paper celebration/impact bursts (folded stars, confetti, petals). Zero allocations per
+   * spawn; replays identically after reset(). Call returned handle's `spawn(origin, { count, colors, speed, scale })`
+   * (origin: [x, y, z] or a Vector3).
+   */
+  function bursts({ capacity: cap = 96, cut = 'confetti', colors = ['#e6b24c', '#d81d4a', '#f6efe3'], size = [0.11, 0.18], gravity = 1.6, drag = 1.75, glow = 0 } = {}) {
+    const capacity = Math.max(1, Math.floor(cap) || 1);
+    const mesh = pool(shapeGeo(cut), capacity, { glow });
+    // Pre-allocate instanceColor before first render so Three.js compiles USE_INSTANCING_COLOR on frame 0
+    for (let i = 0; i < capacity; i++) mesh.setColorAt(i, _c.set(colors[i % colors.length]).multiplyScalar(glow || 1));
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.count = 0;
+    const slots = Array.from({ length: capacity }, () => ({ on: false, age: 0, life: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0, ax: 0, ay: 0, az: 0, s0: 1, ph: 0, col: new THREE.Color() }));
+    let cur = 0, r = rngOf(seed * 3571 + 19);
+    const kind = add({
+      reset(rr) { r = rr; cur = 0; for (const p of slots) p.on = false; mesh.count = 0; },
+      update(dt) {
+        const dr = Math.exp(-drag * dt); let shown = 0;
+        for (const p of slots) {
+          if (!p.on) continue;
+          p.age += dt;
+          if (p.age >= p.life) { p.on = false; continue; }
+          const u = p.age / p.life;
+          p.vx *= dr; p.vz *= dr; p.vy -= gravity * H * dt;
+          p.x += (p.vx + Math.sin(p.age * 7.5 + p.ph) * 0.14 * H) * dt;
+          p.y += p.vy * dt; p.z += p.vz * dt;
+          const floor = gy(p.x, p.z) + 0.04 * H;
+          if (p.y < floor) { p.y = floor; p.vy *= -0.15; p.vx *= 0.6; p.vz *= 0.6; }
+          p.ax += p.rx * dt; p.ay += p.ry * dt; p.az += p.rz * dt;
+          const popIn = u < 0.1 ? u / 0.1 : 1, shrink = u > 0.62 ? Math.max(0, 1 - ((u - 0.62) / 0.38) ** 2) : 1;
+          _p.set(p.x, p.y, p.z); _e.set(p.ax, p.ay, p.az); _q.setFromEuler(_e); _s.setScalar(Math.max(1e-3, p.s0 * popIn * shrink));
+          mesh.setMatrixAt(shown, _m.compose(_p, _q, _s));
+          mesh.setColorAt(shown, p.col);
+          shown++;
+        }
+        mesh.count = shown;
+        if (shown > 0) { mesh.instanceMatrix.needsUpdate = true; if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true; }
+      },
+    });
+    kind.spawn = (at, { count = 20, colors: pal = colors, speed = [1.2, 2.2], upBoost = 1.0, scale = 1.0, life = [1.0, 1.8], spreadZ = 1.0 } = {}) => {
+      const origin = Array.isArray(at) ? at : [at.x, at.y, at.z];
+      for (let i = 0; i < count; i++) {
+        const p = slots[cur++ % capacity], r1 = r(), r2 = r(), r3 = r();
+        const ang = (i / Math.max(1, count)) * Math.PI * 2 + (r1 - 0.5) * 0.45, sp = pick(r, speed) * H;
+        p.on = true; p.age = 0; p.life = pick(r, life);
+        p.x = origin[0] + Math.cos(ang) * 0.1 * H; p.y = origin[1] + (r2 - 0.3) * 0.15 * H; p.z = origin[2] + Math.sin(ang) * 0.1 * H;
+        p.vx = Math.cos(ang) * sp; p.vz = Math.sin(ang) * sp * 0.72 * spreadZ + (spreadZ > 1 ? 0.5 * H * r3 : 0);
+        p.vy = sp * (0.55 + 0.65 * r1) * upBoost;
+        p.rx = (r1 - 0.5) * 8.5; p.ry = (r2 - 0.5) * 10.5; p.rz = (r3 - 0.5) * 8.0;
+        p.ax = r1 * 6.28; p.ay = r2 * 6.28; p.az = r3 * 6.28;
+        p.s0 = pick(r, size) * H * scale; p.ph = r3 * 6.28;
+        p.col.set(pal[i % pal.length]).multiplyScalar(glow || 1);
+      }
+    };
+    return kind;
   }
 
   /**
@@ -257,12 +318,15 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
    */
   function critter(node, { behaviour = 'graze', home = null, roam = 1.2, speed = 0.7, run = 4.5, walk = null, hero = null, card = node, notice = 2.2, scatter = 1.25, hop = 0.03, rock = 0.06, step = 0.28, solid = 0 } = {}) {
     const h0 = home ? new THREE.Vector3(home[0], node.position.y, home[1]) : node.position.clone();
+    const baseSX = Math.abs(card.scale.x) || 1;
     const sol = walk && solid > 0 ? { x: h0.x, z: h0.z, r: solid * H, base: -Infinity, top: Infinity } : null;
     if (sol) walk.solids.push(sol);   // a moving solid: its position follows the creature every step
     const st = { mode: 'idle', t: 0, tx: h0.x, tz: h0.z, sp: speed, face: 1, flip: 1, ph: 0, ang: 0 };
-    return add({ reset(r) { this.r = r; node.position.copy(h0); st.mode = 'idle'; st.t = r() * 3; st.face = st.flip = 1; st.ph = 0; st.ang = r() * 6.28; card.scale.x = Math.abs(card.scale.x); },
+    return add({ reset(r) { this.r = r; node.position.copy(h0); if (sol) { sol.x = h0.x; sol.z = h0.z; } st.mode = 'idle'; st.t = r() * 3; st.face = st.flip = 1; st.ph = 0; st.ang = r() * 6.28; card.scale.x = baseSX; },
       update(dt) {
         const r = this.r, p = node.position, dh = hero ? Math.hypot(hero.x - p.x, hero.z - p.z) / H : 1e9;
+        // his own height above the ground stays (an owl on a stump, a cat on a fence), over rising ground too
+        const baseY = h0.y + (groundY ? gy(p.x, p.z) - gy(h0.x, h0.z) : 0);
         const goTo = (x, z, sp, mode) => { st.tx = x; st.tz = z; st.sp = sp; st.mode = mode; };
         const away = (dist, sp) => { const ax = p.x - hero.x, az = p.z - hero.z, l = Math.hypot(ax, az) || 1; goTo(p.x + (ax / l) * dist * H, p.z + (az / l) * dist * H, sp, 'flee'); };
         const faceHero = () => { if (hero) st.face = Math.sign((hero.x - p.x) * camRight.x + (hero.z - p.z) * camRight.z) || st.face; };
@@ -270,7 +334,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
           st.ang += (speed * H / Math.max(0.3 * H, roam * H)) * dt; const rr = roam * H * (0.75 + 0.25 * Math.sin(time * 0.23 + h0.x));
           const nx = h0.x + Math.cos(st.ang) * rr, nz = h0.z + Math.sin(st.ang) * rr * 0.6;
           st.face = Math.sign((nx - p.x) * camRight.x + (nz - p.z) * camRight.z) || st.face; p.x = nx; p.z = nz;
-          p.y = h0.y + 0.01 * H * Math.sin(time * 1.3 + h0.z);
+          p.y = baseY + 0.01 * H * Math.sin(time * 1.3 + h0.z);
         } else {
           st.t -= dt;
           if (behaviour === 'perch') { if (st.t <= 0) { st.face = -st.face; st.t = lerp(4, 9, r()); } }
@@ -292,21 +356,21 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
               const mx = (dx / d) * m, mz = (dz / d) * m;
               st.face = Math.sign(mx * camRight.x + mz * camRight.z) || st.face;
               let blocked = false;
-              if (walk) { const r0 = sol ? sol.r : 0; if (sol) sol.r = 0; blocked = !!walk.why(p.x + mx, p.z + mz, h0.y, false); if (sol) sol.r = r0; }   // never blocked by itself
+              if (walk) { const r0 = sol ? sol.r : 0; if (sol) sol.r = 0; blocked = !!walk.why(p.x + mx, p.z + mz, baseY, false); if (sol) sol.r = r0; }   // never blocked by itself
               if (blocked) { st.mode = 'idle'; st.t = 0.5; }   // blocked: stop, choose again
               else { p.x += mx; p.z += mz; }
               st.ph += m / (step * H) * Math.PI;
             }
           }
           const moving = st.mode === 'walk' || st.mode === 'flee';
-          p.y = h0.y + (moving ? hop * H * Math.abs(Math.sin(st.ph)) : 0);
+          p.y = baseY + (moving ? hop * H * Math.abs(Math.sin(st.ph)) : 0);
           card.rotation.z = moving ? rock * Math.sin(st.ph) : card.rotation.z * 0.9;
         }
         if (sol) { sol.x = p.x; sol.z = p.z; }
         // the paper flip: |scale.x| jumps across +-0.3, so the card is never seen edge-on
         const want = st.face, k = 1 - Math.exp(-11 * dt);
         st.flip += (want - st.flip) * k; if (Math.abs(st.flip) < 0.3) st.flip = want * 0.3;
-        card.scale.x = Math.abs(card.scale.x) * Math.sign(st.flip) || card.scale.x;
+        card.scale.x = baseSX * st.flip;
       } });
   }
 
@@ -317,7 +381,7 @@ export function createLife({ scene, camera, heroHeight = 3.6, seed = 1, wind = [
     time += dt; for (const k of kinds) k.update(dt);
   }
   function reset(at = null) { if (at) centre.copy(at); time = 0; for (const k of kinds) k.reset(rngOf(k.seed)); }
-  return { group, fallers, motes, flyers, flock, puffs, mist, cloudShadows, critter, update, reset,
+  return { group, fallers, motes, flyers, flock, puffs, mist, cloudShadows, bursts, critter, update, reset,
     /** 0 = day, 1 = night (dusk ~0.5): each kind's counts / opacity blend between its day and night factors. */
     setNight(k) { night = Math.min(1, Math.max(0, k)); },
     get time() { return time; } };

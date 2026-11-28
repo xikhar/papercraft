@@ -48,16 +48,17 @@ scored such a 2D city 2/10).
    lights and no tone mapper: bake a mild grade (saturation and contrast) into the prints and the ground once; at
    most a faint warm vignette, never a colour fog or a sepia multiply.
 6. **Tilt-shift.** One sharp band through the subject (~36-45 % of the frame height looks crisp; `measure.py`
-   focusHeight reads ~0.55-0.75, gate >= 0.35; the template's `band` 0.28 plus its ramp), blur growing above and below; big blurred pieces
-   overlapping the bottom edge sell the miniature scale.
+   focusHeight reads ~0.55-0.75, gate >= 0.35; the template's `band` 0.28 plus its ramp), blur growing above and
+   below; big blurred pieces overlapping the bottom edge sell the miniature scale.
 
 ## 3. Canvas 2D
 
 `assets/templates/popup-2d/` wires all of this in two files: the fixed harness `harness-2d.js` (projection, sprites,
 shadows, lens, raised surfaces, walking, clock, capture hook) and your `scene.js` (the bundled one is the countryside
-worked example). In your own folder copy `assets/lib/` and `harness-2d.js`, keep the harness as it is, and point
-`"papercraft/"` in the page's import map at the folder that holds `lib/` (the template maps it to `../../`). The
-important implementation points:
+worked example). It is built for a world with a walking hero: `H.start()` throws without `H.setHero(...)`. A 2D
+picture or film with no walker is your own canvas loop on the same kit (`paperkit-2d.js`), or a 3D scene. In your own
+folder copy `assets/lib/` and `harness-2d.js`, keep the harness as it is, and point `"papercraft/"` in the page's
+import map at the folder that holds `lib/` (the template maps it to `../../`). The important implementation points:
 
 - **Projection.** Pitched 40 deg (`VIEW.pitch`) with a mild perspective: a world point (x, y, z), z toward the viewer,
   lands at (CX + S k x, CY + S k (z sin(pitch) - y cos(pitch))) with k = D / (D - z cos(pitch)) (`VIEW.dist` D = 70
@@ -107,21 +108,24 @@ important implementation points:
 - **The 2D template** is a fixed harness (`harness-2d.js`: projection, ground sheet, pieces, raised surfaces, lens,
   walking, capture hook) + your `scene.js`: `const H = createHarness2D({ view, light, grade, ground, shadow, kraft,
   walk, play })`, `H.printGround(t => ...)` (your world's own ground; tools `washes`, `ribbon(fx, w, colour, wobble)`,
-  `line` along any polyline, `drifts`), `H.piece(pts, paint, { x, z, y, yaw, sway, seed, slotted, sharp, holes,
-  float, bob, reflect })` (`float`: never touches the ground, so no shadow and no contact pool; `bob`: a floating
-  piece bobs; `reflect`: a faint dark mirrored silhouette under a floating piece, alpha 0.22; prefer printed
-  reflection marks on the water, `structures.md` section 6), `H.decks.push({ z, draw, shadow })` for every raised
-  surface, `H.walk` (add its surfaces, blocks, walls and solids), `H.setHero(body, { parts, step })` (a puppet's
-  cards: `{ p, dx, dy, dz, leg }`, `leg: 0 | 1` on the two leg cards; `step`: the step length, default 0.9),
-  `H.start()`. Prints of your own (a deck, a roof) use `H.Q` (print px per unit), `H.sheet` and `H.mk(w, h)`, and you
-  bake `H.grade` into them (`ctx.filter = H.grade` when you copy the print, as the example's deck does): the harness
-  grades only its own pieces and the ground. The capture hook: `restart()`, `step(seconds)`, `resume()`, `toggle()`,
-  `place(x, z)`, `walkPath(points)`, `look(x, z, zoom)` (default zoom 1.8; or `?view=x,z,zoom`: a review camera that
-  moves the projection only, while the prints keep the blur baked for the main view, so judge the lens there),
-  `fps(ms)` (live-loop frames per second; machines without a GPU read low: compare with the template's own number
-  there), `walk`, `hero`, `pieces`, `buildMs`, `ready`. There is no `?test` or `?diag=key` in 2D: prove the material
-  on the first frame's 3x crops, and see where the shadows fall by passing `shadow: '#000000'` once (they draw at
-  alpha 0.5 x p).
+  `line` along any polyline, `drifts`), `H.piece(pts, paint, { x, z, y, yaw, sway, seed, slotted, sharp, holes, float,
+  bob, reflect })` (it adds the contact darkening at the base and `P.rim` after your paint: do not add them again;
+  `float`: never touches the ground, so no shadow and no contact pool; `bob`: a floating piece bobs; `reflect`: a
+  faint dark mirrored silhouette under a floating piece, alpha 0.22; prefer printed reflection marks on the water,
+  `structures.md` section 6), `H.decks.push({ z, draw, shadow })` for every raised surface, `H.walk` (add its
+  surfaces, blocks, walls and solids), `H.setHero(body, { parts, step })` (required; a puppet's cards: `{ p, dx, dy,
+  dz, leg }`, `leg: 0 | 1` on the two leg cards; `step`: the step length, default 0.9), `H.start()`. Prints of your
+  own (a deck, a roof) use `H.Q` (print px per unit), `H.sheet` and `H.mk(w, h)`, and you bake `H.grade` into them
+  (`ctx.filter = H.grade` when you copy the print, as the example's deck does): the harness grades only its own pieces
+  and the ground. The capture hook: `restart()`, `step(seconds)`, `resume()`, `toggle()`, `place(x, z)`,
+  `walkPath(points)`, `look(x, z, zoom)` (default zoom 1.8; or `?view=x,z,zoom`: a review camera that moves the
+  projection only, while the prints keep the blur baked for the main view, so judge the lens there), `fps(ms)`
+  (live-loop frames per second; machines without a GPU read low: compare with the template's own number there),
+  `walk`, `hero`, `pieces`, `buildMs`, `ready`. URL switches: `?walk`, `?still`, `?capture`, `?view=`, `?size=`,
+  `?aspect=`, `?closer=`, `?ss=`. There is no `?test`, `?diag=key`, `?mood=` or `?safe=` in 2D, and none of the 3D
+  harness's film and review hooks (cues, a camera controller, sound, `spots`, `clips()`, `cards()`): prove the
+  material on the first frame's 3x crops, and see where the shadows fall by passing `shadow: '#000000'` once (they
+  draw at alpha 0.5 x p).
 - **Measuring a 2D world**: use the profile of its light: `storybook` by day, `dusk` for golden hour and dusk, `night`
   at night (`flat` is only for UI pages and print and switches the lens and density gates off). barePct counts a
   canal, a river or a path through the sharp band as bare: dress their banks, do not fill them.
@@ -321,11 +325,13 @@ spring sampled into `linear()` easings (size 0.3; scale the duration with size: 
 ## 7. Video from 2D
 
 - Drive time from a frame counter (`t = frame / fps`), seed every random choice, and expose `step(seconds)`; capture
-  each frame with `canvas.toBlob` (or a headless browser screenshot) and assemble with ffmpeg. Avoid MediaRecorder
-  for final output (variable frame timing). The 2D template exposes `window.__papercraft.restart()`,
+  each frame with `canvas.toBlob` (or a headless browser screenshot) and assemble with ffmpeg. Avoid MediaRecorder for
+  final output (variable frame timing). The 2D template exposes `window.__papercraft.restart()`,
   `window.__papercraft.step(seconds)` (fixed 1/60 s steps, then one render) and `resume()` (back to the live loop);
-  `?capture` hides the hint. `scripts/capture.py <project> clip:video=6,30 --size reel --page <page>` does the
-  frames and the MP4 for you.
+  `?capture` hides the hint. `scripts/capture.py <project> clip:video=6,30 --size reel --page <page>` does the frames
+  and the MP4 for you. On a 2D page the shots `overview`, `midrise`, `at=`, `walk=`, `hold=`, `look=X,Z,ZOOM`,
+  `video=`, `timeline=` and `route=` work; `spot=`, `test`, `key`, `mood=`, `--safe` and `--audio` are 3D only (add
+  sound in the edit, from the kit's offline renders: `sound.md` section 9).
 - Another frame (a 9:16 Reel, a square post, 4K): `?size=1080x1920` or createHarness2D({ size, aspect, subject });
   the short side keeps the scale, a tall frame comes closer and lifts the focus row clear of a platform's captions,
   and the world is built for the frame the page opens with (`formats.md`).

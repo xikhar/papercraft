@@ -6,13 +6,14 @@ reads flat or wrong, or when you meet a thing you do not know how to build.
 Think of these as the data types of the style. Every piece in a world is one structure type, or a composition of
 several, the way any value in a program is built from a few types. Like a programming language's types they are a
 starting vocabulary, not a closed list: extend them, combine them, and define your project's own types when its
-creative needs call for one (section 11). Each type has subtypes, one constructor in the
-kit or the 3D harness, and the things it suits. The constructors take YOUR outline and YOUR print and return the
+creative needs call for one (section 11). Each type has subtypes, one constructor in the kit or the 3D harness, and
+the things it suits. The constructors take YOUR outline and YOUR print and return the
 construction; none of them draws a subject. Choose the type from the thing's shape and from how the camera sees it;
 the silhouette, print and colour come from your brief.
 
-The sampler page `assets/templates/popup-3d/structures.html` shows every type below in plain placeholder outlines,
-each named on the page (click to fold the page flat and watch each one rise). Read its `structures.js` for the calls.
+The sampler page `assets/templates/popup-3d/structures.html` shows the types below in plain placeholder outlines,
+each named on the page (click to fold the page flat and watch each one rise); the laminated cutout and the stepped
+relief are not in it. Read its `structures.js` for the calls.
 
 ## 0. Choosing a type
 
@@ -29,6 +30,8 @@ each named on the page (click to fold the page flat and watch each one rise). Re
 | is a ridge: a dune, a drift, a bank, a rock outcrop, a roof ridge seen end-on | slotted: V-fold | 3 |
 | is a building with a rectangular plan and a pitched roof | folded: box fold | 4 |
 | is a building or volume on any other plan: a flat-roofed block, an L-shaped hall, a kiosk, a round tower, a silo, a well | folded: prism | 4 |
+| is a stepped stack of die-cut layers: an emblem, a logo, a crest, an arch, a relief | folded: stepped relief (`extrudedLayerStack`) | 4 |
+| is transparent art, the user's or cut from a generated sheet, that must keep its exact silhouette | card: laminated cutout (`imageCard`) | 1 |
 | is walked on, under or into: a deck, a pier, a bridge, stairs, a ramp, a terrace | built ground | 5 |
 | lies in the ground: water, a path, a field, a plaza, a rug | printed | 6 |
 | has a face and turns to look: the hero, a creature that faces you | figure | 7 |
@@ -44,6 +47,9 @@ each named on the page (click to fold the page flat and watch each one rise). Re
 - **Low flap, lean-out** (`mechanisms.md` section 10): things that lie low or lean out from a wall.
 - **Backdrop flat** (`mechanisms.md` section 8): far hills, mountains, skylines along the far edge, where the frame's
   top meets the page (`H.groundAt(0, 0.95)`).
+- **Laminated cutout:** `imageCard(img, { height, paper, rim })` makes the card from a transparent image instead of
+  an outline and a print: the paper's fibre inside the alpha, a shadow cut to the silhouette, and with `rim` the
+  printed cut edge for art that has none (`three-js.md` section 3; cutting the art: `image-gen.md` section 8).
 - Rules: a chunky silhouette that names the thing at 32 px, a layered print (`procedural-art.md`), never edge-on.
 
 ## 2. Layered: parallel cards, depth from one side
@@ -80,17 +86,22 @@ objects). The family is named by how much of the cross is kept. Top views, the c
 | half cross | boulders, igloos, shrines, gravestones, statues, a kiosk front: a face with hidden depth behind it | `{ cross: 'half' }` (the half at 0.8 scale, inside the face) |
 | half cross, front | signs and crosses on a strut, a tall flat landmark that needs a foot, a porch, a prow | `{ cross: 'half-front', second: { pts, ymax } }` (its own side outline, cut low: a buttress) |
 | quarter cross | corners: a ruin's corner, a wall end, a cliff or rock corner, an open book | `{ cross: 'quarter' }` |
-| V-fold | ridges: dunes, drifts, banks, rock outcrops (the source game's dunes) | `{ cross: 'quarter', angle: 110-130 }` from an outline highest at the fold (a symmetric hill, a half-ellipse): each wing is then half the ridge, cut square at the fold |
+| V-fold | ridges: dunes, drifts, banks, rock outcrops (the source game's dunes) | `{ cross: 'quarter', angle: 120-130 }` from an outline highest at the fold (a symmetric hill, a half-ellipse): each wing is then half the ridge, cut square at the fold |
 | double cross | one round showpiece seen from everywhere: the great tree of a plaza, a fountain, a carousel | two full crosses 45 deg apart at one spot |
 | stacked crosses | a great tree (a crossed trunk carrying a crossed crown turned another way), palm clusters | crosses on crosses |
 
-- Turning: omit `yaw`. A full or half cross turns its main plane ~24 deg off facing the camera, so no plane is ever
-  edge-on; a hidden half pointing straight away reads as a spike. A quarter cross turns its opening toward the camera,
-  the apex away, as the source game's dune folds do.
+- Turning: omit `yaw`. A cross turns its main plane ~24 deg (16-32) off facing the overview camera, either side, so
+  the front print reads in full, the other plane shows the depth and neither is edge-on; a half cross turns the same
+  way, so its hidden half never points straight at the camera as a spike. That holds while the camera stays within
+  ~15-20 deg of the overview (the fixed view, the walking camera). For a camera that orbits further, pass
+  `createHarness({ crossTurn: 40 })`: full crosses then turn ~40 deg (34-46), both planes about equally open, at the
+  cost of a foreshortened front print (half crosses stay at ~24). A quarter cross turns its opening toward the
+  camera, the apex away, as the source game's dune folds do.
 - `second: { pts, paint, ymax, scale }` gives the second plane its own side view and print; `ymax` cuts it low, and
   `scale` below 1 keeps a hidden half inside the face.
 - Kit: `crossCard(pts, { halves: 'both' | 'front' | 'back', main: 'full' | 'left' | 'right', angle, second })`.
-- Not for low things (single cards or fans: from a high camera a low X reads as a blade), not for buildings (section 4).
+- Not for low things (single cards or fans: from a high camera a low X reads as a blade), nor for buildings
+  (section 4).
 
 ## 4. Folded volumes: closed shapes
 
@@ -99,10 +110,11 @@ objects). The family is named by how much of the cross is kept. Top views, the c
 | box fold with a gable | houses, barns, shops, chapels, sheds, stalls | `boxFold({ w, d, wallH, roofH, paints, holes })` |
 | prism, flat lid | flat-roofed blocks (desert and city houses), crates and containers, plinths, station modules | `prismFold(footprint, { h, roof: 'flat', paints })` |
 | prism, pyramid | kiosks, pavilions, gazebos, hexagonal towers, polygonal tents | `prismFold(ngon, { h, roof: 'pyramid', roofH })` |
-| prism, 8-12 sides | round towers, silos, lighthouses, drums, tanks, chimneys, wells (`roof: 'none'`, low) | `prismFold(ngon(10, r), { h, roof: 'pyramid' })`: a cone (`ngon` as in `structures.js`) |
-| prism, L or any plan | halls, wings, courtyards; or compose several boxes | `prismFold([[x, z], ...])` (flat lid; pyramids need a convex plan) |
+| prism, 8-12 sides | round towers, silos, lighthouses, drums, tanks, chimneys, wells (`roof: 'none'`, low) | `prismFold(P2.shape.ngon(10, r), { h, roof: 'pyramid', center: true })`: a centred cone tower |
+| prism, L or any plan | halls, wings, courtyards; or compose several boxes | `prismFold([[x, z], ...], { center: true })` (flat lid; pyramids need a convex plan) |
 | a dome on a drum | domed halls, observatories, stupas | a low prism and `H.dome` on its lid, or the parallel slices alone |
 | arch, gateway | gates, bridges' arches, portals | a card or wall with an arch cut (`holes`), or two prism piers and a curved card |
+| stepped relief | emblems, logos, crests, stepped frames, relief arches | `extrudedLayerStack(shapeOrPts, { layers, holes, paper })`: a stack of die-cut layers, each about card thickness (1-2x), that telescopes out of the flat (`three-js.md` section 3) |
 
 - Folded, a box lies as a net and a prism flattens like a paper tube (half its perimeter wide); both rise with the
   page and close their roofs last. Put them on the page with `popup(null, null, { node, height, solid })`.

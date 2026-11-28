@@ -371,8 +371,10 @@ function deckle(el, seed = 1, amp = 0.02) {
 - Avoid gradients, gloss, bevels and pill shapes.
 
 **Sound** (an untested start, `sound.md` section 11). Opening a panel plays a small rising flap; closing it plays a
-closing flap with the same seed. Never sonify hover or scroll:
-`details.addEventListener('toggle', () => sfx.flap({ size: 0.3, up: details.open, seed: hashSeed(details.id) }))`.
+closing flap with the same seed. Never sonify hover or scroll. `const sfx = new PaperSound()` (`paper-sound.js`),
+`sfx.unlock()` inside a pointerdown and a keydown handler, then:
+`details.addEventListener('toggle', () => sfx.flap({ size: 0.3, up: details.open, seed: hashSeed(details.id), key:
+details.id }))`.
 
 **Accessibility.**
 - Keep focus visible (the inked ring).

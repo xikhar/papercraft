@@ -11,8 +11,9 @@ Contents: 1 Principles; 2 The page is the world; 3 Never pop: printed twin and i
 5 Derive the radii from your frame; 6 Seeded chunked generation; 7 Biomes as soft regions; 8 Density and scale;
 9 Composing one diorama; 10 Checks
 
-Units: **H** = hero height, **M** = module (one generator tile; ~3.3 H in the source), **R** = reveal radius
-(derived in section 5), **F** = frame height. Seconds stay seconds. *(opt)* marks a flourish; the rest is required.
+Units: **H** = hero height (with no hero, the height a person has in this world: `heroHeight`), **M** = module (one
+generator tile; ~3.3 H in the source), **R** = reveal radius (derived in section 5), **F** = frame height. Seconds
+stay seconds. *(opt)* marks a flourish; the rest is required.
 
 ## 1. Principles
 
@@ -291,9 +292,9 @@ printed ground past every frame edge. Build it in two passes, as the 3D template
    leaking (a blind test put a teal "irrigation channel" with the example's torn rim, foam ripples and near-identical
    hexes into a space station); water the brief does ask for takes its world's form (a station trough: straight
    panel sides, pipes, a tiled lip; a reef: no banks at all), never the example's torn river by default. Then the
-   subject's landmark cluster (a coral head, a docking ring; a hamlet only if the brief has one); the hero off-centre
-   (the template: on the path, lower right third); human-scale props and creatures where the landmark and the leading
-   line meet. Give each landmark a keep-out radius.
+   subject's landmark cluster (a coral head, a docking ring; a hamlet only if the brief has one); the hero, if
+   there is one, off-centre (the template: on the path, lower right third); human-scale props and creatures where
+   the landmark and the leading line meet. Give each landmark a keep-out radius.
 2. **Then a fill from a slow noise** (a few summed sines, features several groups wide): the densest masses where it
    is high, groups of 4-8 different pieces in the middle, clearings where it is low. Candidates sit on a jittered
    grid, off the leading line, any water and the keep-outs, and only where the camera can see: the template projects
@@ -309,7 +310,7 @@ sections 1 and 9). The 3D harness refits the shadow map as the camera moves; you
 `fitShadow(lights, lookAt)` (`three-js.md` section 5).
 
 At the hero framing: density and sizes as in section 8; the hero 6-10 % of the frame height, off-centre, inside the
-sharp band.
+sharp band (with no hero, the landmark takes that place and the same scale holds).
 
 The frame then reads in three depths:
 
@@ -340,8 +341,8 @@ The frame then reads in three depths:
 - [ ] Jiggling the hero in place for 10 s flips nothing; the page visibly closes behind, from the track outward.
 - [ ] Same seed gives identical chunks in any visiting order (hash the chunk contents from two orders).
 - [ ] The ground runs past every frame edge (no book edge, table, horizon or sky); density and sizes as in section 8
-      (barePct <= ~55, groups of 4-8 different pieces, no confetti, no group stamped twice); the hero readable and
-      off-centre.
+      (barePct <= ~55, groups of 4-8 different pieces, no confetti, no group stamped twice); the hero, if there is
+      one, readable and off-centre.
 - [ ] The ground stays flat: height only from nested cards, V-folds and rock outcrops, and a slope the brief names
       from terraces and steps (`mechanisms.md` section 14); everything walked on, under or into is a construction the
       walk field reads (open, or masonry the brief names), and a scripted walk crosses each (`mechanisms.md`

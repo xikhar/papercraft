@@ -101,6 +101,9 @@ the silhouette line inside the blur.
   `ffmpeg -framerate 60 -i f_%05d.png -c:v libx264 -crf 16 -pix_fmt yuv420p out.mp4` (tag it BT.709 and add
   `+faststart` for the web: `formats.md` section 7, which also lists the sizes and safe areas per platform).
 - Sound: render paper foley offline from the event list (`renderOffline` in `assets/lib/paper-sound.js` runs in a
-  browser's OfflineAudioContext), keep music as a separate stem, mix with one shared SFX gain, loudness-normalise
-  (levels: `sound.md` section 9).
+  browser's OfflineAudioContext), keep music as a separate stem, set the paper 16-20 dB under the music's peak with
+  one gain and bring the mix to its loudness with another; paper without music is never normalised (`sound.md`
+  section 9).
+- A web page that exposes the templates' hook (`ready`, `restart()`, `step(seconds)`) can use `scripts/capture.py`
+  for all of this (`--hook NAME`; frames, colour check, MP4: `formats.md` section 7).
 - Stop-motion only when the brief asks for it (the style moves smoothly): `motion.md` section 11.

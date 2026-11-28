@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import * as P2 from 'papercraft/lib/paperkit-2d.js';
 import { paperTextures, paperMaterial, makeCard, crossCard, WalkField, fitShadow, hinge, paperLights, enableSoftShadows, PaperPost, PAPER_LIGHT, setPrintScale, cardClips } from 'papercraft/lib/paperkit-3d.js';
-import { PaperSound } from 'papercraft/lib/paper-sound.js';
+import { PaperSound, FLAP, hashSeed, renderOffline, encodeWav16 } from 'papercraft/lib/paper-sound.js';
 import { windSway } from 'papercraft/lib/paper-motion.js';
 
 /** Measured light sets of the example world. The prints never change: only light, shadow tint, haze and grade. Night
@@ -50,23 +50,45 @@ export const MOODS = {
  * fill the frame turned 90 degrees, for a phone page that may be rotated). Author the view for 16:9: another shape
  * keeps the lens on its short side (view.closer brings a tall frame closer: formats.md). H.frame { w, h, aspect, fovY,
  * wide, tall, lat, mag, printScale } describes it.
+ * A world without a walking hero (a diorama, a scrolling page, a film): skip setHero(). autoOpen (false: nothing rises
+ * by itself and a click does not fold the world: you raise things with H.cue / H.fold / H.setOpen), roam (true: the
+ * camera leaves the overview, so every row prints at full quality: any camera on a controller), crossTurn (how far a
+ * full slotted cross turns its main plane from facing the overview camera: 24 deg for a fixed or following camera, the
+ * front print reads in full; ~40 for a camera that orbits more than ~20 deg, so neither plane comes near edge-on),
+ * flapVoicing (a FLAP_PRESETS entry for this world's paper sound).
  * H.onStep(fn): fn(time, dt) every fixed step (fireflies, flicker, a turning wheel): animate on the harness clock.
  * H.onRestart(fn): fn() on restart(), so seeded extras replay too (paper-life: H.onRestart(() => life.reset(H.target))).
+ * H.setCameraController(fn): fn(time, dt, { camera, target, post, lights, fitShadow, view, frame, shadowAt, setFocus })
+ * every step instead of the harness camera: place the camera, move `target` (the lens focuses there unless you call
+ * setFocus) and refit the shadow map as you go. Build it on paper-motion's glideSchedule / polarCameraPos and run
+ * checkContinuity on it. The fill tests (inFrame, inReach) know only the overview: fill what your path shows.
+ * H.cue(t, fn): fn(time) once when the clock reaches t seconds, again after every restart(): the timeline of a film
+ * (H.cue(1.2, () => H.setOpen(true)); H.cue(3, () => H.fold(tower))). H.fold(handle, open = true, delay = 0) raises or
+ * folds one popup with its paper sound placed where it stands; H.setOpen(open) the whole world in flat-stack order
+ * (both after start(): call them from a cue or a step hook). H.recordFlap({ size, up, pan, distance, key }) and
+ * H.recordStep({ surface, foot, pan }) play a paper sound now and log it for the offline mix (capture.py --audio);
+ * H.setMusicRenderer((seconds, sampleRate, from) => AudioBuffer) adds your score to that mix (paper-music.js).
+ * H.mixMood(a, b = a, k = 0): light that changes over time. Applies mood a blended k (0..1) of the way to mood b (a
+ * name in `moods`, 'day' for the light the world was built with, or a mood object): key, fill, sky, shadow colour,
+ * lit panes, lamps, haze and grade together. Call it after start(), from a cue, a step hook or the controller.
  * The hero is a page-level popup (no parent). Anywhere he stands, on the page or on a deck, he rides whatever is under
  * him as the world rises, until he first moves. The camera follows him only once he has moved.
  * H: THREE, flags { TEST, MOOD, WALK, ROAM, DIAG }, renderer, scene, camera, paper, view, target, walk (WalkField),
  * hinges, spots (your named places, for captures), printGround(draw), popup(pts, paint, opts), printed(pts, paint) (one
  * print stamped on many cards: popup's `materials`), stack, dome, cardOpts, groundAt(sx, sy), onStep, onRestart,
  * inFrame(x, z) (the overview), inReach(x, z) (anything the walking camera can show: fill with this),
- * sharpAt(x, z), lamp(x, y, z, k), glowing(group), setHero(handle, { stride, turn }), start(). The hero is a 3D paper
- * model facing +z: walking accelerates at a constant rate, the HEADING turns smoothly toward the way he goes (the whole
- * model yaws: it reads from every side), he leans forward on a springy settle and rolls into turns. stride(walked,
- * gait) is called every frame with the distance walked and the walking amount (0 standing .. 1 striding): swing the
- * limbs there. turn: 'yaw' (default) or 'flip' (a flat card that mirrors to face left / right: critters, extras).
+ * sharpAt(x, z), lamp(x, y, z, k), glowing(group), setHero(handle, { stride, turn, step, surface, steps }), start().
+ * The hero is a 3D paper model facing +z: walking accelerates at a constant rate, the HEADING turns smoothly toward the
+ * way he goes (the whole model yaws: it reads from every side), he leans forward on a springy settle and rolls into
+ * turns. stride(walked, gait) is called every frame with the distance walked and the walking amount (0 standing .. 1
+ * striding): swing the limbs there. turn: 'yaw' (default) or 'flip' (a flat card that mirrors to face left / right:
+ * critters, extras). Footfalls: one quiet step sound every `step` world units walked (default heroHeight / 3: match
+ * your stride's step length), on surface(x, z, walkSurface) -> a SURFACES key (default 'wood' on a deck, else
+ * 'grass'); steps: false for a hero that makes none (a boat, a drone).
  */
 export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, ground = '#d9d2c2', view: view0 = {}, testView = { dist: 38, target: [3, 1.5, -6] },
   heroHeight = 3.6, light = {}, lens = {}, walk: walkOpts = { step: 0.75, radius: 0.6 }, moods = MOODS, play = false, focus = null, mood = null, stock = '#f7f0e2', walkArea = null, camBox = null,
-  size = null, aspect = null, subject = null, rotate = false } = {}) {
+  size = null, aspect = null, subject = null, rotate = false, autoOpen = true, flapVoicing = null, roam = false, crossTurn = 24 } = {}) {
   const T0 = performance.now();
   // print costs by the scene line that asked for them: __papercraft.printStats() (and a console line when the build is
   // slow) says which pieces to print smaller (popup res), share (one print, many cards) or cut
@@ -89,7 +111,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   });
   const Q = new URLSearchParams(location.search);
   const flags = { TEST: Q.has('test'), MOOD: Q.get('mood') || mood || 'day', WALK: Q.has('walk') || (play && !Q.has('still') && !Q.has('test')), DIAG: Q.get('diag') };
-  flags.ROAM = flags.WALK || Q.has('roam');            // the camera can go anywhere: every row prints at full quality
+  flags.ROAM = flags.WALK || roam || Q.has('roam');    // the camera can go anywhere: every row prints at full quality
   if (Q.has('capture')) document.getElementById('hint')?.remove();
 
   // ---- renderer, the output frame, camera, paper ------------------------------------------------------------------
@@ -360,17 +382,20 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   let seedN = 1;
   // Pieces placed without a yaw turn as the source game turns them: a single card faces the camera (+-14 deg, seeded);
   // a slotted cross turns its main plane ~24 deg off facing the camera (the other plane ~66 deg off, either side), so
-  // the front print reads in full, the cross shows its depth and neither plane is ever edge-on. Measured against the
+  // the front print reads in full, the cross shows its depth and neither plane is ever edge-on. That holds while the
+  // camera stays within ~15 deg of the overview (the fixed view, the walking camera). A camera that orbits further
+  // would bring the second plane edge-on: createHarness({ crossTurn: 40 }) turns full crosses ~40 deg (34..46), both
+  // planes about equally open, at the cost of a foreshortened front print. A half cross (T) always turns ~24 deg (its
+  // half must never point straight at or away from the camera: edge-on it reads as a spike); a quarter cross (L or V)
+  // turns its opening toward the camera (the apex away, as the source game's dune folds do). Measured against the
   // line from the overview camera to the piece (perspective turns the view up to ~20 deg toward the frame edges).
-  // A half cross turns like a full one (its half must never point straight at or away from the camera: edge-on it
-  // reads as a spike); a quarter cross (L or V) turns its opening toward the camera (the apex away, as the source
-  // game's dune folds do).
   const DEG = Math.PI / 180;
   const autoYaw = (x, z, kind, angle = 90) => {
     const phi = Math.atan2(camera.position.x - x, camera.position.z - z);
     if (!kind) return phi + (turn() - 0.5) * 2 * 14 * DEG;
     if (kind === 'quarter') return phi - (90 - angle / 2) * DEG + (turn() - 0.5) * 2 * 10 * DEG;
-    return phi + (turn() < 0.5 ? -1 : 1) * (24 + (turn() - 0.5) * 16) * DEG;   // full, half-front
+    const base = kind === 'full' ? crossTurn : 24;             // full (+): crossTurn; half (T): always ~24
+    return phi + (turn() < 0.5 ? -1 : 1) * (base + (turn() - 0.5) * (base > 30 ? 12 : 16)) * DEG;
   };
   // popup's cross option: true / 'full' (+), 'half' (T: the half behind), 'half-front' (T: a buttress toward the viewer),
   // 'quarter' (L; angle > 90 opens it into a V-fold)
@@ -378,7 +403,8 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   /**
    * popup(pts, paint, opts) puts a printed card (or opts.node: a cross, a box fold, a construction) on a hinge.
    * opts: x, z, yaw (omit it: a card faces the camera +-14 deg, a cross stands with its main plane ~24 deg off the view,
-   * as the source game turns them; a node or a piece on a deck keeps 0), cross (slotted planes of pts, mechanisms.md
+   * as the source game turns them (createHarness's crossTurn widens full crosses for an orbiting camera); a node or a
+   * piece on a deck keeps 0), cross (slotted planes of pts, mechanisms.md
    * section 5: true / 'full' a + (trees, palms, cacti, tents, posts), 'half' a T with the half behind (a boulder, an
    * igloo, a shrine), 'half-front' a T with a buttress toward the viewer, 'quarter' an L, and with angle > 90 a V-fold
    * (dunes, drifts, ridges, outcrops); second: { pts, paint, ymax } gives the second plane its own side view and print,
@@ -452,11 +478,19 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
   const glowing = (group) => { glowers.push(group); group.traverse((o) => o.userData.setGlow?.(0.35)); };
 
   const H = { THREE, P2, flags, renderer, scene, camera, paper, view, target, walk, hinges, spots, bounds, frame, heroHeight, groundAt, stack, dome,
-    printGround, popup, printed, cardOpts, inFrame, inReach, walkArea, sharpAt, lamp, glowing, hero: null, heroStride: null, stepHooks: [], onStep: (fn) => H.stepHooks.push(fn), restartHooks: [], onRestart: (fn) => H.restartHooks.push(fn), heroTurn: 'yaw', setHero: (h, { stride = null, turn = 'yaw' } = {}) => { H.hero = h; H.heroStride = stride; H.heroTurn = turn; }, start };
+    printGround, popup, printed, cardOpts, inFrame, inReach, walkArea, sharpAt, lamp, glowing, hero: null, heroStride: null, stepHooks: [], onStep: (fn) => H.stepHooks.push(fn), restartHooks: [], onRestart: (fn) => H.restartHooks.push(fn), heroTurn: 'yaw',
+    setHero: (h, { stride = null, turn = 'yaw', step = null, surface = null, steps = true } = {}) => { H.hero = h; H.heroStride = stride; H.heroTurn = turn; H.heroStep = step || heroHeight / 3; H.heroSurface = surface; H.heroSteps = steps; },
+    cameraController: null, setCameraController: (fn) => { H.cameraController = fn; },
+    musicRenderer: null, setMusicRenderer: (fn) => { H.musicRenderer = fn; },
+    cues: [], cue: (t, fn) => { H.cues.push({ t, fn, done: false }); },
+    fold: () => { throw new Error('papercraft harness: H.fold() works after H.start(): call it from H.cue(t, fn) or a step hook'); },
+    mixMood: () => { throw new Error('papercraft harness: H.mixMood() works after H.start(): call it from H.cue(t, fn), a step hook or the camera controller'); },
+    setOpen: () => { throw new Error('papercraft harness: H.setOpen() works after H.start(): call it from H.cue(t, fn) or a step hook'); },
+    recordFlap: () => {}, recordStep: () => {}, start };
 
   // ---- start: light, lens, choreography, input, walking, the loop and the capture hook -------------------------------
   function start() {
-    const hero = H.hero; if (!hero) throw new Error('papercraft harness: call H.setHero(popup(...)) before H.start()');
+    const hero = H.hero;   // optional: place-only dioramas, scrolling worlds & orbital films need no walking hero
     const L = { target: new THREE.Vector3(-1, 0, -12), keyDir: [-0.8, 0.95, 0.55], key: '#ffdcb2', keyIntensity: 3.0, fill: '#f2dcc2', fillIntensity: 0.8,
       fillDir: [0.45, 0.5, 1.0], sky: '#fff0da', ground: '#b39a78', skyIntensity: 0.42, shadowExtent: 50, distance: 100, mapSize: 4096, leak: '#a0602c', softness: 0.26, maxPenumbra: 1.4, ...light };
     // key from the side, ~55 deg off the camera axis and ~45 deg up: faces stay lit, shadows fall sideways where the
@@ -466,42 +500,110 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
     enableSoftShadows(lights.key, { softness: L.softness, maxPenumbra: L.maxPenumbra });
     const post = new PaperPost(renderer, scene, camera, { haze: '#d8bf8e', hazeStart: 34, hazeEnd: 95, hazeAmount: 0.3, focusBand: 0.3, ramp: 0.3, maxBlur: 18,
       tint: [1.03, 0.985, 0.98], saturation: 0.96, greenDesat: 0.3, exposure: 0.82, contrast: 1.18, vignette: 0.03, ...lens });
-    const M = moods[flags.MOOD];
-    if (M) {
-      lights.key.color.set(M.key); lights.key.intensity = M.ki; lights.fill.color.set(M.fill); lights.fill.intensity = M.fi;
-      if (M.dir) lights.key.position.copy(lights.key.target.position).addScaledVector(new THREE.Vector3(...M.dir).normalize(), L.distance);
-      lights.sky.color.set(M.sky); lights.sky.groundColor.set(M.skyG); lights.sky.intensity = M.si;
-      PAPER_LIGHT.leak.value.set(M.leak); if (M.wrap) PAPER_LIGHT.wrap.value = M.wrap;
-      if (M.glow && flags.DIAG !== 'key') for (const gr of glowers) gr.traverse((o) => o.userData.setGlow?.(M.glow));
-      if (M.lamp && flags.DIAG !== 'key') for (const [x, y, z, k, d] of lamps) { const P = new THREE.PointLight('#ffb070', M.lamp * k, d, 1.0); P.position.set(x, y, z); scene.add(P); } // before the first render: the light count is fixed
-      Object.assign(post.o, M.post); post.apply();
+    // Moods, and light that changes over time. H.mixMood(a, b = a, k = 0) applies mood a blended k (0..1) of the way to
+    // mood b: names in `moods`, 'day' (the light this world was built with) or mood objects { key, ki, dir, fill, fi,
+    // sky, skyG, si, leak, wrap, glow, lamp, post: { ...lens and grade keys } }; a key a mood leaves out takes the day
+    // value. Colours mix in linear light. Call it from a cue, a step hook or the camera controller (a film's dawn to
+    // night); restart() puts the starting light back. The lamps of H.lamp() are made by the first blend that has a
+    // mood with lamps at either end, so the one recompile lands there (H.lampLights, to dim one by one).
+    const DAY = { key: L.key, ki: L.keyIntensity, dir: L.keyDir, fill: L.fill, fi: L.fillIntensity, sky: L.sky, skyG: L.ground, si: L.skyIntensity, leak: L.leak,
+      wrap: PAPER_LIGHT.wrap.value, glow: 0.35, lamp: 0, post: {} };
+    const post0 = { ...post.o, tint: [...post.o.tint] }, postTouched = new Set(), lampLights = [];
+    const _ma = new THREE.Color(), _mb = new THREE.Color(), _mc = new THREE.Color(), _da = new THREE.Vector3(), _db = new THREE.Vector3();
+    const mixCol = (out, a, b, k) => { _ma.set(a); _mb.set(b); return out.copy(_ma).lerp(_mb, k); };
+    const moodOf = (m) => {
+      if (typeof m === 'string' && m !== 'day' && !moods[m]) throw new Error(`papercraft harness: no mood "${m}" (have: day, ${Object.keys(moods).join(', ')})`);
+      const o = typeof m === 'string' ? moods[m] : m, r = { ...DAY };
+      for (const key in (o || {})) if (o[key] != null) r[key] = o[key];
+      return r;
+    };
+    let glowSet = null, glowN = -1, glowNow = null, moodMixed = false;
+    function mixMood(a, b = a, k = 0) {
+      moodMixed = true;
+      const A = moodOf(a), B = moodOf(b), lerp = THREE.MathUtils.lerp; k = THREE.MathUtils.clamp(+k || 0, 0, 1);
+      mixCol(lights.key.color, A.key, B.key, k); lights.key.intensity = lerp(A.ki, B.ki, k);
+      mixCol(lights.fill.color, A.fill, B.fill, k); lights.fill.intensity = lerp(A.fi, B.fi, k);
+      mixCol(lights.sky.color, A.sky, B.sky, k); mixCol(lights.sky.groundColor, A.skyG, B.skyG, k); lights.sky.intensity = lerp(A.si, B.si, k);
+      _da.set(...A.dir).normalize().lerp(_db.set(...B.dir).normalize(), k).normalize();
+      lights.key.position.copy(lights.key.target.position).addScaledVector(_da, L.distance);
+      mixCol(PAPER_LIGHT.leak.value, A.leak, B.leak, k); PAPER_LIGHT.wrap.value = lerp(A.wrap, B.wrap, k);
+      const diag = flags.DIAG === 'key', glow = lerp(A.glow, B.glow, k), lamp = diag ? 0 : lerp(A.lamp, B.lamp, k);
+      if (!diag && (glow !== glowNow || glowN !== glowers.length)) {      // lit panes: only when the value or the list changed
+        if (glowN !== glowers.length) { glowSet = []; for (const gr of glowers) gr.traverse((o) => { if (o.userData.setGlow) glowSet.push(o.userData.setGlow); }); glowN = glowers.length; }
+        for (const fn of glowSet) fn(glow);
+        glowNow = glow;
+      }
+      if (!diag && (A.lamp > 0 || B.lamp > 0)) for (let i = lampLights.length; i < lamps.length; i++) {   // made once, dark: the light count then stays fixed
+        const [x, y, z, kk, d] = lamps[i], P = new THREE.PointLight('#ffb070', 0, d, 1.0);
+        P.position.set(x, y, z); P.userData.k = kk; scene.add(P); lampLights.push(P);
+      }
+      for (const P of lampLights) P.intensity = lamp * P.userData.k;
+      for (const key of new Set([...Object.keys(A.post || {}), ...Object.keys(B.post || {}), ...postTouched])) {
+        const va = A.post?.[key] ?? post0[key], vb = B.post?.[key] ?? post0[key];
+        post.o[key] = typeof va === 'number' ? lerp(va, vb, k) : Array.isArray(va) ? va.map((v, i) => lerp(v, vb[i], k))
+          : k <= 0 || va === vb ? va : k >= 1 ? vb : '#' + mixCol(_mc, va, vb, k).getHexString();
+        postTouched.add(key);
+      }
+      post.apply();
+      // ?diag=key: the key light alone (look.md 8b), applied AFTER the mood so it holds in every mood
+      if (diag) { lights.fill.intensity = 0; lights.sky.intensity = 0; PAPER_LIGHT.leak.value.set('#000000'); }
     }
-    // ?diag=key: the key light alone (look.md 8b), applied AFTER the mood so it holds in every mood
-    if (flags.DIAG === 'key') { lights.fill.intensity = 0; lights.sky.intensity = 0; PAPER_LIGHT.leak.value.set('#000000'); }
+    H.mixMood = mixMood; H.lampLights = lampLights;
+    const MOOD0 = moods[flags.MOOD] ? flags.MOOD : 'day';
+    if (MOOD0 !== 'day') mixMood(MOOD0);            // before the first render, so a mood with lamps starts with them
+    else if (flags.DIAG === 'key') { lights.fill.intensity = 0; lights.sky.intensity = 0; PAPER_LIGHT.leak.value.set('#000000'); }
+    moodMixed = false;                              // true once the scene itself changes the light
 
     // choreography: the nearest card lies on top of the flat stack, so it rises first; closing is the exact reverse
-    const sound = new PaperSound();
+    const sound = new PaperSound({ flap: flapVoicing || FLAP });
+    const flapEvents = [], _sp = new THREE.Vector3();
+    let time = 0;
+    const spatialFor = (obj) => {
+      if (!obj) return { pan: 0, distance: 0 };
+      obj.getWorldPosition(_sp);
+      const distance = Math.hypot(_sp.x - target.x, _sp.z - target.z) * 0.45;
+      _sp.project(camera);
+      return { pan: THREE.MathUtils.clamp(_sp.x, -1, 1), distance };
+    };
+    H.recordFlap = (ev = {}) => {
+      const e = { t: time, kind: 'flap', size: ev.size ?? 0.5, up: ev.up !== false, pan: ev.pan ?? 0, distance: ev.distance ?? 0, seed: ev.seed ?? hashSeed('flap', flapEvents.length), key: ev.key ?? null };
+      flapEvents.push(e);
+      sound.flap(e);
+    };
+    H.recordStep = (ev = {}) => {
+      const e = { t: time, kind: 'step', surface: ev.surface ?? 'grass', foot: ev.foot ?? 0, pan: ev.pan ?? 0, seed: ev.seed ?? hashSeed('step', flapEvents.length) };
+      flapEvents.push(e);
+      sound.step(e);
+    };
     let up = false;
+    // one piece rises (or folds flat) after `delay`, its paper sound placed where it stands
+    const fold = (h, open = true, delay = 0) => {
+      h.onStart = (hh) => {
+        const sp = spatialFor(hh.group);
+        H.recordFlap({ size: hh.size, up: open, key: hh.id, pan: sp.pan, distance: sp.distance, seed: hashSeed('hinge', hh.id, open ? 1 : 0) });
+      };
+      h.set(open ? 1 : 0, delay);
+    };
     function setOpen(open) {
       up = open;
-      const maxOrder = Math.max(...hinges.map((h) => h.order));
+      const maxOrder = hinges.length ? Math.max(...hinges.map((h) => h.order)) : 0;
       for (const h of hinges) {
         const k = open ? h.order : maxOrder - h.order;
-        h.set(open ? 1 : 0, 0.1 + k * (open ? 0.09 : 0.045) + h.jit);   // fixed per-piece jitter: replays are identical
-        h.onStart = (hh) => sound.flap({ size: hh.size, up: open, key: hh.id });  // a number per piece: the engine groups by key
+        fold(h, open, 0.1 + k * (open ? 0.09 : 0.045) + h.jit);   // fixed per-piece jitter: replays are identical
       }
     }
+    H.fold = fold; H.setOpen = setOpen;
     // camera: looking down into the world (40-55 deg), long lens, gentle drift; drag to look around
     let drag = null;
     renderer.domElement.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: 0 }; sound.unlock(); });
     addEventListener('keydown', () => sound.unlock());     // a player on the keys alone hears it too
     addEventListener('pointermove', (e) => {
-      if (!drag) return;
+      if (!drag || H.cameraController) return;
       drag.moved += Math.abs(e.movementX) + Math.abs(e.movementY);
       view.tyaw = THREE.MathUtils.clamp(view.tyaw - e.movementX * 0.15, -12, 12);      // the world is filled where the camera
       view.tpitch = THREE.MathUtils.clamp(view.tpitch + e.movementY * 0.12, 40, 55);  // looks; never so low the far edge shows
     });
-    addEventListener('pointerup', () => { if (drag && drag.moved < 6) setOpen(!up); drag = null; });
+    addEventListener('pointerup', () => { if (drag && drag.moved < 6 && autoOpen && !H.cameraController) setOpen(!up); drag = null; });
 
     // walking (?walk): WASD / arrows move the hero over the walk field; the camera follows and refits the shadow map.
     // Movement as the source game moves its player: velocity approaches the wanted one at a constant rate (a snappy
@@ -513,11 +615,12 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
     const SPEED = 1.9 * heroHeight, ACCEL = 28 * heroHeight, TURN = 13, LEAN = 3.5 * Math.PI / 180, LEAN_W = 2 * Math.PI * 3.4, LEAN_Z = 0.75, ROLL = 4 * Math.PI / 180;
     let facing = 1, moved = false;   // moved: the hero has walked (keys or walkPath): the camera follows, the lens too
     let walked = 0, gait = 0;        // the distance walked and how much he is walking (0 standing .. 1 striding)
+    let stepN = 0;                   // footfalls so far (one per H.heroStep walked)
     let heading = 0, heading0 = 0, yawRate = 0, lean = 0, leanV = 0; const vel = new THREE.Vector3();
     let looking = false;             // a look() review frame holds the camera until restart()
     let steering = null;             // steer(x, z): the wanted direction on the page, as if held on a stick
     const DIST0 = view.dist;
-    if (flags.WALK) {
+    if (flags.WALK && hero) {
       // physical keys (e.code: any layout, caps lock or shift), no modifier chords, all released when the page loses
       // focus (a key let go in another window never sticks)
       addEventListener('keydown', (e) => { if (!KEYS[e.code] || e.metaKey || e.ctrlKey || e.altKey) return; keys.add(e.code); e.preventDefault(); });
@@ -647,9 +750,10 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       d = aPitch - gPitch; tmp = (aPitchV + om * d) * dt; aPitchV = (aPitchV - om * tmp) * e; aPitch = gPitch + (d + tmp) * e;
     }
     const assistOff = () => { aYaw = aPitch = aYawV = aPitchV = gYaw = gPitch = 0; occT = clearT = checkT = heldT = 0; blockers = null; };
-    const sync = () => hero.group.position.set(heroPos.x, heroPos.y + 0.02, heroPos.z);
+    const sync = () => { if (hero) hero.group.position.set(heroPos.x, heroPos.y + 0.02, heroPos.z); };
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
     const pose = (dt) => {                                    // heading (or the flip), lean and roll on the model
+      if (!hero) return;
       const node = hero.pivot.children[0];
       if (H.heroTurn === 'flip') { hero.pivot.scale.x += (facing - hero.pivot.scale.x) * (1 - Math.exp(-dt * 14)); return; }
       hero.group.rotation.y = heading;
@@ -674,6 +778,15 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       const d = Math.hypot(heroPos.x - x0, heroPos.z - z0); walked += d;
       if (sp > 1e-4 && dt > 0 && d < sp * dt * 0.98) vel.set((heroPos.x - x0) / dt, 0, (heroPos.z - z0) / dt);   // blocked or sliding: keep only what the obstacle allowed
       gait += ((d > 1e-4 ? 1 : 0) - gait) * (1 - Math.exp(-dt * 10));
+      // footfalls: one quiet step each step length walked (sound.md section 4), on the surface under him
+      if (H.heroSteps && d > 1e-4) {
+        const n = Math.floor(walked / H.heroStep);
+        if (n !== stepN) {
+          stepN = n;
+          const s = walk.surface(heroPos.x, heroPos.z);
+          H.recordStep({ surface: H.heroSurface ? H.heroSurface(heroPos.x, heroPos.z, s) : (s && s.y > 0.15 ? 'wood' : 'grass'), foot: n & 1, pan: spatialFor(hero.group).pan * 0.6 });
+        }
+      }
       // lean: an under-damped spring toward a forward lean that grows with speed (rocks once on stop)
       // sub-stepped at 240 Hz like paper-motion's Spring: one explicit step per frame flips the lean's sign every frame
       // (front / back flapping) once a frame is longer than ~1 / (2 x 0.75 x 21.4) = 31 ms, i.e. below ~32 fps
@@ -685,33 +798,46 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       camFollow(dt); updateAssist(dt);
       if (target.distanceTo(shadowAt) > 2) { shadowAt.copy(target); fitShadow(lights, shadowAt); } // keep the shadow map on the view
     }
-    let time = 0;
+    const camCtx = { camera, target, post, lights, fitShadow, view, frame, shadowAt, setFocus: (x, y, z) => post.focus.set(x, y, z) };
     function step(dt) {
       time += dt;
       for (const h of hinges) {
         h.update(dt);
         h.sway = h.swayAmp ? windSway(time, h.x, h.z, { amp: 1.6 * h.swayAmp, heroHeight }) : 0; // about the fold line
       }
-      hero.pivot.rotation.y = Math.sin(time * 0.7) * 0.05;
-      // until he first moves the hero rides whatever is under him (a quay, a terrace) as the world rises: a hero who
-      // starts on a deck stands on it when it has risen, and his first step is from there
-      if (!moved) { const s = walk.surface(heroPos.x, heroPos.z); if (s) heroPos.y = s.y; sync(); }
-      if (flags.WALK) walkStep(dt);
+      if (hero) {
+        hero.pivot.rotation.y = Math.sin(time * 0.7) * 0.05;
+        // until he first moves the hero rides whatever is under him (a quay, a terrace) as the world rises: a hero who
+        // starts on a deck stands on it when it has risen, and his first step is from there
+        if (!moved) { const s = walk.surface(heroPos.x, heroPos.z); if (s) heroPos.y = s.y; sync(); }
+        if (flags.WALK) walkStep(dt);
+      }
       if (focusBlend < 1) focusBlend = Math.min(1, focusBlend + dt / 0.6);
+      for (const c of H.cues) if (!c.done && time >= c.t) { c.done = true; c.fn(time); }
       for (const fn of H.stepHooks) fn(time, dt);
-      view.yaw += (view.tyaw - view.yaw) * (1 - Math.exp(-dt * 6));
-      view.pitch += (view.tpitch - view.pitch) * (1 - Math.exp(-dt * 6));
-      placeCamera(view.yaw + aYaw + Math.sin(time * 0.21) * 0.5, view.pitch + aPitch + Math.sin(time * 0.17) * 0.3);
+      if (H.cameraController && !looking) {
+        post.focus.copy(target);
+        H.cameraController(time, dt, camCtx);
+        camera.updateMatrixWorld();
+      } else {
+        view.yaw += (view.tyaw - view.yaw) * (1 - Math.exp(-dt * 6));
+        view.pitch += (view.tpitch - view.pitch) * (1 - Math.exp(-dt * 6));
+        placeCamera(view.yaw + aYaw + Math.sin(time * 0.21) * 0.5, view.pitch + aPitch + Math.sin(time * 0.17) * 0.3);
+      }
     }
-    let focusAt = null;            // look() focuses the lens on a point; otherwise it follows the hero
+    let focusAt = null;            // look() focuses the lens on a point; otherwise it follows the hero or target
     let focusBlend = 1; const focusFrom = new THREE.Vector3(), _fg = new THREE.Vector3();
     function render() {
       const kd = view.dist / 66;
       if (focusAt) post.focus.copy(focusAt);
-      else if (focus && !moved) post.focus.set(...focus);     // the overview's subject (createHarness({ focus }))
-      else {
-        _fg.set(hero.group.position.x - 3 * kd, 1.8 + hero.group.position.y, hero.group.position.z - 4 * kd);
-        if (focusBlend < 1) { const e = focusBlend * focusBlend * (3 - 2 * focusBlend); post.focus.lerpVectors(focusFrom, _fg, e); } else post.focus.copy(_fg);
+      else if (!H.cameraController) {
+        if (focus && !moved) post.focus.set(...focus);     // the overview's subject (createHarness({ focus }))
+        else if (hero) {
+          _fg.set(hero.group.position.x - 3 * kd, 1.8 + hero.group.position.y, hero.group.position.z - 4 * kd);
+          if (focusBlend < 1) { const e = focusBlend * focusBlend * (3 - 2 * focusBlend); post.focus.lerpVectors(focusFrom, _fg, e); } else post.focus.copy(_fg);
+        } else {
+          post.focus.copy(target);
+        }
       }
       post.render(time);
     }
@@ -744,26 +870,39 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
     }
     addEventListener('resize', resize);
     resize();
-    setOpen(true);
-    heroPos.set(hero.group.position.x, 0, hero.group.position.z); HERO0.copy(heroPos); heading = heading0 = hero.group.rotation.y;
-    if (!subj && !flags.TEST && LENS.lat < 0.99) {   // a narrow frame and nothing to swing toward: say so if he is at its edge
-      _v.copy(hero.group.position).setY(1.8).project(camera);
-      if (Math.abs(_v.x) > 0.8 || Math.abs(_v.y) > 0.9) console.warn(`papercraft: the hero is at the edge of this ${frame.w}x${frame.h} frame: give createHarness a subject: [x, z] (his start) so a narrow frame swings toward him (references/formats.md)`);
+    if (autoOpen) setOpen(true);
+    if (hero) {
+      heroPos.set(hero.group.position.x, 0, hero.group.position.z); HERO0.copy(heroPos); heading = heading0 = hero.group.rotation.y;
+      if (!subj && !flags.TEST && LENS.lat < 0.99) {   // a narrow frame and nothing to swing toward: say so if he is at its edge
+        _v.copy(hero.group.position).setY(1.8).project(camera);
+        if (Math.abs(_v.x) > 0.8 || Math.abs(_v.y) > 0.9) console.warn(`papercraft: the hero is at the edge of this ${frame.w}x${frame.h} frame: give createHarness a subject: [x, z] (his start) so a narrow frame swings toward him (references/formats.md)`);
+      }
+      if (walkArea && (heroPos.x < walkArea.x0 || heroPos.x > walkArea.x1 || heroPos.z < walkArea.z0 || heroPos.z > walkArea.z1)) console.warn('papercraft: the hero starts outside walkArea: he cannot move');
     }
-    if (walkArea && (heroPos.x < walkArea.x0 || heroPos.x > walkArea.x1 || heroPos.z < walkArea.z0 || heroPos.z > walkArea.z1)) console.warn('papercraft: the hero starts outside walkArea: he cannot move');
+    if (H.cameraController) {
+      post.focus.copy(target);
+      H.cameraController(0, 0, camCtx);
+      camera.updateMatrixWorld();
+    }
     let last = performance.now(), auto = true;
     renderer.setAnimationLoop((now) => { if (!auto) return; step(Math.min(0.05, Math.max(0, (now - last) / 1000))); last = now; render(); }); // dt clamped to [0, 50 ms]
     function restart() { // a full reset: hinges flat, the hero back at his start, the camera on its first view
-      time = 0; for (const h of hinges) h.reset(0);
-      heroPos.copy(HERO0); sync(); facing = 1; hero.pivot.scale.x = 1; moved = false; looking = false; view.dist = DIST0;
-      heading = heading0; yawRate = 0; lean = 0; leanV = 0; vel.set(0, 0, 0); walked = 0; gait = 0; steering = null; H.heroStride?.(0, 0); pose(0); assistOff();
+      time = 0; flapEvents.length = 0; for (const h of hinges) h.reset(0);
+      for (const c of H.cues) c.done = false;
+      if (moodMixed) { mixMood(MOOD0); moodMixed = false; }   // a film that changed the light starts again in its first light
+      if (hero) {
+        heroPos.copy(HERO0); sync(); facing = 1; hero.pivot.scale.x = 1; heading = heading0; yawRate = 0; lean = 0; leanV = 0; vel.set(0, 0, 0); walked = 0; gait = 0; stepN = 0; steering = null; H.heroStride?.(0, 0); pose(0);
+      }
+      moved = false; looking = false; view.dist = DIST0; assistOff();
       for (const fn of H.restartHooks) fn();             // seeded extras (paper-life) replay from t = 0 too
       target.copy(TARGET0); zoneLive = false; tVel.set(0, 0, 0); keys.clear(); focusAt = null; focusBlend = 1; if (shadowAt.distanceTo(TARGET0) > 0.01) { shadowAt.copy(TARGET0); fitShadow(lights, shadowAt); }
-      setOpen(true);
+      if (autoOpen) setOpen(true);
+      if (H.cameraController) { post.focus.copy(target); H.cameraController(0, 0, camCtx); camera.updateMatrixWorld(); }
     }
     /** Scripted walk through the same walk field the keys use (blockers, feet and the step limit apply); the camera
      *  follows. Returns { reached, of, stuck, y, on, heights }: reached < of means the route is blocked. */
     function walkPath(points, o) {
+      if (!hero) return { reached: 0, of: points.length, stuck: 'no-hero', blockedBy: null, y: 0, on: 'none', heights: [] };
       moved = true; focusBlend = 1;
       const r = walk.route(heroPos, points, o); sync(); follow(true); assistOff(); updateAssist(0, true);
       const tr = r.trace, ta = tr[Math.max(0, tr.length - 8)], tz = tr[tr.length - 1];
@@ -787,7 +926,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       for (let z = z0; z <= z1 + 1e-6; z += cell) {
         let row = '';
         for (let x = x0; x <= x1 + 1e-6; x += cell) {
-          if (Math.abs(x - heroPos.x) <= cell / 2 && Math.abs(z - heroPos.z) <= cell / 2) { row += 'H'; continue; }
+          if (hero && Math.abs(x - heroPos.x) <= cell / 2 && Math.abs(z - heroPos.z) <= cell / 2) { row += 'H'; continue; }
           const s = walk.surface(x, z); row += !s ? '#' : s.y >= 10 ? '^' : s.y < 0.15 ? '.' : String(Math.min(9, Math.max(1, Math.round(s.y))));
         }
         rows.push(row);
@@ -798,6 +937,7 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
     // in one plane) renders as a cut line sliding as he walks and turns, or as flicker. clips(n) poses him standing and
     // through two stride cycles and returns the pairs that do (cardClips, references/mechanisms.md section 12).
     function clips(n = 24) {
+      if (!hero) return [];
       const found = new Map(), stride = H.heroStride, keep = [walked, gait];
       const scan = (at) => { for (const c of cardClips(hero.group)) { const k = `${c.a} / ${c.b}`; if (!found.has(k)) found.set(k, { ...c, at }); } };
       if (stride) stride(0, 0);
@@ -813,18 +953,43 @@ export function createHarness({ bounds = { x0: -64, x1: 64, z0: -62, z1: 38 }, g
       const top = [...printLog.values()].sort((a, b) => b.ms - a.ms).slice(0, 4).map((e) => `${e.at} ${e.prints}x ${Math.round(e.ms)} ms`).join('; ');
       console.warn(`papercraft: the build took ${(buildMs / 1000).toFixed(1)} s, ${printN} prints ${(printMs / 1000).toFixed(1)} s (${(printPx / 1e6).toFixed(1)} Mpx). Slowest: ${top}. __papercraft.printStats(); trims: references/three-js.md section 9`);
     }
+    const bytesToBase64 = (bytes) => {
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+      return btoa(bin);
+    };
     // capture hook: restart() folds everything flat and replays from t = 0, so step(0.8) is a true mid-rise frame;
     // step(sec) advances a fixed clock (stops the real-time loop) and renders
-    window.__papercraft = { step(sec, fps = 60) { auto = false; for (let i = 0; i < Math.round(sec * fps); i++) step(1 / fps); render(); return time; }, restart,
-      resume() { last = performance.now(); auto = true; }, toggle: () => setOpen(!up), post, scene, camera, pieces: hinges.length, walk, view, target, heroPos,
+    window.__papercraft = { step(sec, fps = 60) { auto = false; const n = Math.max(1, Math.round(sec * fps)); for (let i = 0; i < n; i++) step(sec / n); render(); return time; }, restart,
+      resume() { last = performance.now(); auto = true; }, toggle: () => setOpen(!up), setOpen, post, scene, camera, pieces: hinges.length, walk, view, target, heroPos,
+      get time() { return time; },
+      get flapEvents() { return flapEvents; },
+      /** Offline audio render for capture.py --audio: synthesises recorded paper flaps + optional H.setMusicRenderer() score into base64 16-bit WAVs. */
+      async renderAudio(durationSec, { sampleRate = 48000, spacing = 0.55, spacingJitter = 0.2, falloff = 9, groupWindow = 0.5, flap = null, from = 0 } = {}) {
+        const dur = Math.max(0.25, durationSec || time || 4);
+        const startOff = Math.max(0, from || 0);
+        const evs = startOff > 0
+          ? flapEvents.filter((e) => e.t >= startOff && e.t < startOff + dur).map((e) => ({ ...e, t: e.t - startOff }))
+          : flapEvents;
+        let paperWavB64 = null, musicWavB64 = null;
+        if (evs.length) {
+          const pBuf = await renderOffline(evs, dur, { sampleRate, spacing, spacingJitter, falloff, groupWindow, flap: flap || flapVoicing || FLAP });
+          paperWavB64 = bytesToBase64(encodeWav16(pBuf));
+        }
+        if (H.musicRenderer) {
+          const mBuf = await H.musicRenderer(dur, sampleRate, startOff);
+          if (mBuf) musicWavB64 = bytesToBase64(encodeWav16(mBuf));
+        }
+        return { sampleRate, duration: dur, from: startOff, flapCount: evs.length, paperWavB64, musicWavB64 };
+      },
       /** steer(x, z): walk him that way (a direction on the page, any length; null stops) through the same
        *  acceleration, turning and blockers as the keys: capture.py's route= clips steer him along waypoints. */
       steer: (x, z) => { steering = x == null || (!x && !z) ? null : [x / Math.hypot(x, z), z / Math.hypot(x, z)]; },
-      place: (x, z) => { const s = walk.surface(x, z); if (!s) return null; heroPos.set(x, s.y, z); sync(); moved = true; follow(true); focusBlend = 1; assistOff(); updateAssist(0, true); return s.y; },
-      walkPath, walkMap, look, spots, buildMs, frame, clips, ready: true, // ready: the build is synchronous; frame: the output frame and its lens; clips(): the hero's cards that cut into each other
+      place: (x, z) => { if (!hero) return null; const s = walk.surface(x, z); if (!s) return null; heroPos.set(x, s.y, z); sync(); moved = true; follow(true); focusBlend = 1; assistOff(); updateAssist(0, true); return s.y; },
+      walkPath, walkMap, look, spots, buildMs, frame, clips, hasHero: !!hero, ready: true, // ready: the build is synchronous; frame: the output frame and its lens; clips(): the hero's cards that cut into each other
       /** Can the lens see him? rays (of 3: thigh, chest, hat) a large piece blocks from the plain view and from the
        *  sight assist's current one, and the assist's offsets (deg). Walk a route with place() and read it. */
-      sight: () => ({ plain: assistBlocked(0, 0), now: assistBlocked(aYaw, aPitch), yaw: +aYaw.toFixed(1), pitch: +aPitch.toFixed(1), blockers: blockers ? blockers.length : 0 }),
+      sight: () => (!hero ? { plain: 0, now: 0, yaw: 0, pitch: 0, blockers: 0 } : { plain: assistBlocked(0, 0), now: assistBlocked(aYaw, aPitch), yaw: +aYaw.toFixed(1), pitch: +aPitch.toFixed(1), blockers: blockers ? blockers.length : 0 }),
       /** What the build spent printing, by the scene line that asked (slowest first): trim those (popup res, one print
        *  shared by many cards, fewer copies) when the build is slow (references/three-js.md section 9). */
       printStats(n = 10) {

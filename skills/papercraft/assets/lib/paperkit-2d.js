@@ -26,8 +26,9 @@ export function toRGB(hex) {
   const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
-export function toHex(rgb) {
-  return '#' + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+export function toHex(rgb, g, b) {
+  const arr = Array.isArray(rgb) ? rgb : [rgb, g, b];
+  return '#' + arr.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
 }
 /** Linear mix of two hex colours. */
 export function mix(a, b, t) {
@@ -242,7 +243,102 @@ export const shape = {
     return [[-w / 2, 0], ...top, [w / 2, 0]];
   },
 
+  /** Regular n-gon centred on (0, 0) of radius r (footprints for prismFold towers, silos, kiosks, dais steps). */
+  ngon(n = 8, r = 1, { phase = Math.PI / n } = {}) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + phase;
+      pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    return pts;
+  },
+
+  /** Rounded-corner rectangle standing on y = 0 (clean signs, screens, panels, architectural arches). */
+  roundedRect(w, h, r = 0.2, segs = 6) {
+    const rad = Math.max(0, Math.min(r, w * 0.49, h * 0.49));
+    if (rad < 1e-6) return [[-w / 2, 0], [w / 2, 0], [w / 2, h], [-w / 2, h]];
+    const hw = w / 2, pts = [];
+    const corners = [
+      [hw - rad, rad, -Math.PI / 2, 0],
+      [hw - rad, h - rad, 0, Math.PI / 2],
+      [-hw + rad, h - rad, Math.PI / 2, Math.PI],
+      [-hw + rad, rad, Math.PI, Math.PI * 1.5],
+    ];
+    for (const [cx, cy, a0, a1] of corners) {
+      for (let i = 0; i <= segs; i++) {
+        const a = a0 + (a1 - a0) * (i / segs);
+        pts.push([cx + Math.cos(a) * rad, cy + Math.sin(a) * rad]);
+      }
+    }
+    return pts;
+  },
+
+  /** Billowy storybook cloud bank on a flat base y = 0: upper envelope of overlapping circular puffs (never pointy).
+   *  Call as shape.cloud(rng(seed), { w, h, puffs }) or shape.cloud({ w, h, puffs }). */
+  cloud(rOrOpts, opts = {}) {
+    const r = typeof rOrOpts === 'function' ? rOrOpts : rng(typeof rOrOpts === 'number' ? rOrOpts : 1);
+    const { w = 6, h = 2.6, puffs = 5, n = 120 } = (rOrOpts && typeof rOrOpts === 'object') ? rOrOpts : opts;
+    const hw = w / 2, balls = [];
+    for (let i = 0; i < puffs; i++) {
+      const u = puffs === 1 ? 0.5 : i / (puffs - 1);
+      const cx = (u - 0.5) * w * 0.72 + (r() - 0.5) * w * 0.04;
+      const env = Math.sin(Math.PI * (0.12 + 0.76 * u));
+      const rad = h * (0.36 + 0.34 * env) * (0.94 + 0.12 * r());
+      const cy = Math.max(rad * 0.32, h * (0.28 + 0.34 * env) - rad * 0.32);
+      balls.push([cx, cy, rad]);
+    }
+    const top = [];
+    for (let i = 0; i <= n; i++) {
+      const x = -hw + (w * i) / n;
+      let y = 0;
+      for (const [cx, cy, rad] of balls) {
+        const dx = x - cx;
+        if (Math.abs(dx) < rad) y = Math.max(y, cy + Math.sqrt(rad * rad - dx * dx));
+      }
+      if (i === 0 || i === n) y = 0;
+      top.push([x, Math.max(0, y)]);
+    }
+    return [[-hw, 0], ...top.filter((p, i) => i > 0 && i < top.length - 1), [hw, 0]];
+  },
+
 };
+
+/**
+ * Validate a closed 2D cut outline before extruding: catches degenerate edges, tiny area, NaN coordinates and
+ * self-intersecting loops (which cause spikes or torn faces in THREE.ExtrudeGeometry).
+ */
+export function validateOutline(pts) {
+  const issues = [];
+  if (!Array.isArray(pts) || pts.length < 3) return { ok: false, area: 0, selfIntersections: 0, issues: ['outline needs at least 3 points'] };
+  const n = pts.length;
+  let area2 = 0, dup = 0;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    if (!Number.isFinite(a[0]) || !Number.isFinite(a[1])) { issues.push(`non-finite point at ${i}`); return { ok: false, area: 0, selfIntersections: 0, issues }; }
+    area2 += a[0] * b[1] - b[0] * a[1];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 1e-7) dup++;
+  }
+  const area = Math.abs(area2) * 0.5;
+  if (area < 1e-6) issues.push('zero or near-zero area');
+  if (dup > 0) issues.push(`${dup} duplicate adjacent point(s)`);
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const hit = (a, b, c, d) => {
+    if (Math.max(a[0], b[0]) < Math.min(c[0], d[0]) || Math.max(c[0], d[0]) < Math.min(a[0], b[0])) return false;
+    if (Math.max(a[1], b[1]) < Math.min(c[1], d[1]) || Math.max(c[1], d[1]) < Math.min(a[1], b[1])) return false;
+    const d1 = cross(a, b, c), d2 = cross(a, b, d), d3 = cross(c, d, a), d4 = cross(c, d, b);
+    return ((d1 > 1e-9 && d2 < -1e-9) || (d1 < -1e-9 && d2 > 1e-9)) && ((d3 > 1e-9 && d4 < -1e-9) || (d3 < -1e-9 && d4 > 1e-9));
+  };
+  let selfIntersections = 0;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue;
+      if (hit(a, b, pts[j], pts[(j + 1) % n])) selfIntersections++;
+    }
+  }
+  if (selfIntersections > 0) issues.push(`${selfIntersections} self-intersecting edge pair(s)`);
+  return { ok: issues.length === 0, area, selfIntersections, issues };
+}
 
 /**
  * Hand-cut irregularity: subdivide edges to `step` units and push points along the edge normal by smooth noise.

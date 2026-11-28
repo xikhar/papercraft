@@ -75,8 +75,12 @@ export function finish(out, sr, { attack, tailFrom, peakWithin = 0.0055 }) {
   return out;
 }
 
-/** Final, ear-approved flap voicing. All frequencies scale with fs = pitch * brightness(size). */
-export const FLAP = {
+/** Ear-approved flap voicings. All frequencies scale with fs = pitch * brightness(size).
+ *  warm (default): sits gently behind felt-piano music without sharp transients (< 1.5 kHz >= 85 %).
+ *  crisp: brighter cardstock snap (v0.6 default).
+ *  soft: ultra-gentle storybook whisper.
+ */
+const FLAP_BASE = {
   gain: 0.13, downGainDb: -9, downBright: 0.9, sizeGainMin: 0.85,
   durMin: 0.096, durMax: 0.23, durCurve: 1.4, durPitch: 0.3, durJitter: 0.035,
   pitchMin: 0.5, pitchMax: 0.82, pitchRandSt: 4.3, pitchSizeSt: 0.4, pitchMinStepSt: 0.7,
@@ -93,6 +97,28 @@ export const FLAP = {
   lowHz: 190, lowQ: 1.1, lowGain: 2.2, lowFrom: 0.4, lowTau: 0.014, lowDown: 0.1,
   downSwell: 0.022, downSwellFrom: 0.3, downStop: 0.5, attackUp: 0.0022, attackDown: 0.0048,
 };
+
+export const FLAP_PRESETS = {
+  warm: {
+    ...FLAP_BASE,
+    pitchMin: 0.45, pitchMax: 0.74,
+    bedHz: 1750, hpHz: 390, lpHz: 1620, airLpHz: 1500,
+    tiltSmall: 2150, tiltLarge: 1280, tiltSmallDown: 1850, tiltLargeDown: 1200,
+    grainAmp: 0.074, microAmp: 0.018, tick: 0.024,
+    attackUp: 0.0032, attackDown: 0.0056,
+  },
+  crisp: { ...FLAP_BASE },
+  soft: {
+    ...FLAP_BASE,
+    gain: 0.10, pitchMin: 0.42, pitchMax: 0.68,
+    bedHz: 1480, hpHz: 360, lpHz: 1380, airLpHz: 1320,
+    tiltSmall: 1800, tiltLarge: 1100, tiltSmallDown: 1600, tiltLargeDown: 1020,
+    grainAmp: 0.052, microAmp: 0.014, tick: 0.018,
+    attackUp: 0.0042, attackDown: 0.0065,
+  },
+};
+
+export const FLAP = FLAP_PRESETS.warm;
 
 /** Pitch / duration / level for one flap. Pitch is recentred in the allowed range (keeps variety when the range moves). */
 export function flapParams({ size = 0.5, up = true, seed = 1, lastSt = null }, F = FLAP) {
@@ -270,8 +296,8 @@ function buildChain(ctx, dest) {
  * distance falloff, voice cap. Footsteps bypass the spacing rule.
  */
 export class PaperSound {
-  constructor({ spacing = 0.55, spacingJitter = 0.2, maxVoices = 8, falloff = 9, volume = 1, groupWindow = 0.5 } = {}) {
-    Object.assign(this, { spacing, spacingJitter, maxVoices, falloff, volume, groupWindow });
+  constructor({ spacing = 0.55, spacingJitter = 0.2, maxVoices = 8, falloff = 9, volume = 1, groupWindow = 0.5, flap = FLAP } = {}) {
+    Object.assign(this, { spacing, spacingJitter, maxVoices, falloff, volume, groupWindow, flapVoicing: flap });
     this.ctx = null; this.next = 0; this.lastSt = null; this.voices = []; this.count = 0; this.muted = false; this.keys = new Map();
   }
   /** Call inside a pointerdown / keydown handler (browsers only allow audio after a gesture). */
@@ -302,8 +328,7 @@ export class PaperSound {
   /**
    * A card folding. size 0..1, up = rising, pan -1..1, distance in your world units (falloff = half-gain distance).
    * key: one sound per gesture - every part of one piece (all flaps of a tile, both planes of a tree) passes the same
-   * key, and only the first within groupWindow speaks. For "nearest / largest wins", pick the best event of a frame
-   * yourself and call flap() once (see references/sound.md).
+   * key, and only the first within groupWindow speaks. For "nearest / largest wins", use createFlapCollector().
    */
   flap({ size = 0.5, up = true, pan = 0, distance = 0, seed = null, key = null } = {}) {
     if (!this.ctx || this.muted || this.ctx.state !== 'running') return false;
@@ -315,9 +340,9 @@ export class PaperSound {
     this.voices = this.voices.filter((v) => v.end > this.ctx.currentTime);
     if (this.voices.length >= this.maxVoices) return false; // refused before it can use up the spacing slot
     const sd = seed ?? hashSeed('flap', this.count++);
-    const P = flapParams({ size, up, seed: sd, lastSt: this.lastSt });
+    const P = flapParams({ size, up, seed: sd, lastSt: this.lastSt }, this.flapVoicing);
     this.lastSt = P.st;
-    const buf = synthFlap({ size, up, pitch: P.pitch, dur: P.dur, seed: P.synthSeed, air: clamp(distance / (this.falloff * 2), 0, 1), sr: this.ctx.sampleRate });
+    const buf = synthFlap({ size, up, pitch: P.pitch, dur: P.dur, seed: P.synthSeed, air: clamp(distance / (this.falloff * 2), 0, 1), sr: this.ctx.sampleRate }, this.flapVoicing);
     const when = Math.max(now, this.next);
     const r = mulberry32(P.synthSeed ^ 0xabc)();
     this.next = when + this.spacing + (r * 2 - 1) * this.spacingJitter;
@@ -332,27 +357,77 @@ export class PaperSound {
 }
 
 /**
- * Render a list of events to an AudioBuffer offline (for video): events = [{ t, kind: 'flap'|'step', ...opts }].
- * Applies the same spacing rule as the live player, so the video sounds like the game.
+ * Per-frame "nearest & largest wins" flap collector. Add every hinge that starts moving during a frame, then call
+ * flush(t) at the end of the step: only the highest-scoring non-duplicate piece speaks (never a chorus of 12 flaps).
+ * sfx: a PaperSound instance OR a callback (ev) => void (e.g. pushing into an offline event list).
+ * Pass the harness clock to flush (H.onStep((t) => col.flush(t))): without it the window runs on wall time, which a
+ * frame-stepped capture does not follow. Call reset() from H.onRestart (a clock that jumps back is handled too).
  */
-export async function renderOffline(events, duration, { sampleRate = 48000, spacing = 0.55, spacingJitter = 0.2, falloff = 9 } = {}) {
-  const ctx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
-  const { bus } = buildChain(ctx, ctx.destination);
+export function createFlapCollector(sfx, { falloff = 9, groupWindow = 0.5 } = {}) {
+  const pending = [], seen = new Map();
+  return {
+    add(ev) { if (ev) pending.push(ev); },
+    flush(t = null) {
+      if (!pending.length) return null;
+      const now = t ?? (typeof performance !== 'undefined' ? performance.now() / 1000 : 0);
+      let best = null, bestScore = -1;
+      for (const ev of pending) {
+        const up = ev.up !== false;
+        if (ev.key != null) {
+          const k = `${ev.key}|${up}`, last = seen.get(k);
+          if (last !== undefined && Math.abs(now - last) < groupWindow) continue;   // abs: the clock may restart
+        }
+        const d = ev.distance ?? 0, s = ev.size ?? 0.5;
+        const score = (0.4 + 0.6 * s) / (1 + (d / falloff) ** 4);
+        if (score > bestScore) { bestScore = score; best = ev; }
+      }
+      pending.length = 0;
+      if (!best) return null;
+      let spoke = true;
+      if (typeof sfx === 'function') sfx(t != null ? { ...best, t } : best);
+      else if (sfx && typeof sfx.flap === 'function') spoke = sfx.flap(best) !== false;
+      if (spoke && best.key != null) {   // a flap the player refused (spacing, voices, distance) does not use up its key
+        seen.set(`${best.key}|${best.up !== false}`, now);
+        if (seen.size > 512) for (const [k, at] of seen) if (Math.abs(now - at) >= groupWindow) seen.delete(k);   // only the stale
+      }
+      return best;
+    },
+    reset() { pending.length = 0; seen.clear(); },
+  };
+}
+
+/**
+ * Render a list of events to an AudioBuffer offline (for video): events = [{ t, kind: 'flap'|'step', ...opts }].
+ * Applies the same spacing, distance falloff and key deduplication rules as the live player.
+ */
+export async function renderOffline(events, duration, { sampleRate = 48000, spacing = 0.55, spacingJitter = 0.2, falloff = 9, groupWindow = 0.5, volume = 1, flap = FLAP } = {}) {
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
+  const { bus, master } = buildChain(ctx, ctx.destination);
+  master.gain.value = 0.855 * 2 * volume;
+  const keys = new Map();
   let next = 0, lastSt = null, count = 0;
   for (const e of [...events].sort((a, b) => a.t - b.t)) {
+    if (e.t < 0 || e.t >= duration) continue;
     let buf, level, when = e.t;
     let pan = e.pan ?? 0;
     if (e.kind === 'step') { ({ buf, level } = synthStep({ ...e, seed: e.seed ?? hashSeed('step', count++), sr: sampleRate })); pan += e.foot ? 0.07 : -0.07; }
     else {
+      const up = e.up !== false;
+      if (e.key !== undefined && e.key !== null) {
+        const k = `${e.key}|${up}`, last = keys.get(k);
+        if (last !== undefined && when - last < groupWindow) continue;
+        keys.set(k, when);
+      }
       if (when < next - 0.08) continue;
       const dist = 1 / (1 + ((e.distance ?? 0) / falloff) ** 4);
       if (dist < 0.03) continue;
-      const P = flapParams({ size: e.size ?? 0.5, up: e.up !== false, seed: e.seed ?? hashSeed('flap', count++), lastSt });
+      const P = flapParams({ size: e.size ?? 0.5, up, seed: e.seed ?? hashSeed('flap', count++), lastSt }, flap);
       lastSt = P.st;
-      buf = synthFlap({ size: e.size ?? 0.5, up: e.up !== false, pitch: P.pitch, dur: P.dur, seed: P.synthSeed, air: Math.min(1, Math.max(0, (e.distance ?? 0) / (falloff * 2))), sr: sampleRate });
+      buf = synthFlap({ size: e.size ?? 0.5, up, pitch: P.pitch, dur: P.dur, seed: P.synthSeed, air: clamp((e.distance ?? 0) / (falloff * 2), 0, 1), sr: sampleRate }, flap);
       const r = mulberry32(P.synthSeed ^ 0xabc)();
       level = P.level * dist; when = Math.max(when, next); next = when + spacing + (r * 2 - 1) * spacingJitter;
     }
+    if (when >= duration) continue;
     const ab = ctx.createBuffer(1, buf.length, sampleRate); ab.getChannelData(0).set(buf);
     const src = ctx.createBufferSource(); src.buffer = ab;
     const g = ctx.createGain(); g.gain.value = level;
@@ -360,4 +435,32 @@ export async function renderOffline(events, duration, { sampleRate = 48000, spac
     src.connect(g); g.connect(p); p.connect(bus); src.start(when);
   }
   return ctx.startRendering();
+}
+
+/**
+ * Encode a Web Audio AudioBuffer (or { numberOfChannels, length, sampleRate, channels: Float32Array[] }) to a 16-bit
+ * PCM RIFF/WAVE Uint8Array (suitable for saving from headless capture or downloading in-browser).
+ */
+export function encodeWav16(audioBuffer) {
+  const numCh = audioBuffer.numberOfChannels;
+  const len = audioBuffer.length;
+  const sr = audioBuffer.sampleRate;
+  const chs = audioBuffer.channels || Array.from({ length: numCh }, (_, c) => audioBuffer.getChannelData(c));
+  const dataBytes = len * numCh * 2;
+  const buf = new ArrayBuffer(44 + dataBytes);
+  const v = new DataView(buf);
+  const str = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + dataBytes, true); str(8, 'WAVE');
+  str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, numCh, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * numCh * 2, true); v.setUint16(32, numCh * 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, dataBytes, true);
+  let off = 44;
+  for (let i = 0; i < len; i++) {
+    for (let c = 0; c < numCh; c++) {
+      const s = clamp(chs[c][i], -1, 1);
+      v.setInt16(off, s < 0 ? Math.round(s * 32768) : Math.round(s * 32767), true);
+      off += 2;
+    }
+  }
+  return new Uint8Array(buf);
 }

@@ -1,0 +1,28 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>steps</title><link rel="icon" href="data:,">
+<style>html, body { margin: 0; background: #000; } canvas { display: block; }</style></head>
+<body><canvas id="c"></canvas>
+<script>
+  // A page whose every frame says which step it shows, for tests/browser.py: the top half is grey (step x 16),
+  // the bottom half one of six colours (step mod 6). Any frame a capture drops, repeats or shifts is then visible,
+  // and so is a wrong colour range or matrix.
+  const Q = new URLSearchParams(location.search), m = /^(\d+)x(\d+)$/.exec(Q.get('size') || '640x360');
+  const W = +m[1], H = +m[2], cv = document.getElementById('c');
+  cv.width = W; cv.height = H; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const gl = cv.getContext('webgl2', { antialias: false });
+  const PAL = [[200, 40, 40], [40, 180, 60], [50, 60, 200], [230, 200, 60], [60, 200, 200], [200, 60, 190]];
+  let t = 0, n = 0;
+  function draw() {
+    const v = ((n * 16) % 256) / 255, c = PAL[n % 6];
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, H >> 1, W, H - (H >> 1)); gl.clearColor(v, v, v, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.scissor(0, 0, W, H >> 1); gl.clearColor(c[0] / 255, c[1] / 255, c[2] / 255, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  draw();
+  window.__papercraft = {
+    ready: true, buildMs: 0, pieces: 0, hasHero: false,
+    frame: { w: W, h: H, fovY: 26, mag: 1, printScale: 1 },
+    restart() { t = 0; n = 0; draw(); },
+    step(dt = 0) { t += dt; n = Math.round(t * 30); draw(); return n; },
+  };
+</script></body></html>

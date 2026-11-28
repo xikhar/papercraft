@@ -7,25 +7,31 @@ Read this when: building a 3D paper scene or game for the browser, or porting th
 three.js project. Read `look.md` first if you have not.
 
 Contents: 1 Setup; 2 Paper material; 3 Cards; 4 Hinges and springs; 5 Light and shadows; 6 Lens (PaperPost);
-7 The printed ground; 8 Clock and capture hook; 9 Performance; 10 Pitfalls
+7 The printed ground; 8 Clock and capture hook; 9 Performance; 10 Pitfalls and API quick reference
 
 ## 1. Setup
 
 The template `assets/templates/popup-3d/` is the reference wiring (serve over http: the modules import each other
 relatively), split in two: `harness.js` is the fixed harness, kept as it is, and `scene.js` is your world (the bundled
 one is the countryside worked example). A scene does `const H = createHarness({ bounds, ground, stock, view, testView,
-heroHeight, light, lens, walk, play, mood, moods, focus, walkArea, camBox, size, aspect, subject, rotate })` (the view
-authored for 16:9; size / aspect / subject / view.closer frame any other shape: `formats.md`), prints ITS OWN ground with `H.printGround(t => ...)` (the
-tools are techniques, not a recipe: the example's sage washes, river and path are its world's; tools: `washes`,
-`torn`, `band`, `ribbon`, `bandOf`, `line`, `drifts`, `water`), places its pieces with `H.popup(outline, print, { x,
-z, yaw, cross, node, self, parent, solid, level, holes, res, materials, ... })` (print quality follows the lens: rows
-it blurs print flat and coarse; `res` scales a piece's print resolution; `materials: H.printed(pts, paint)` stamps one
-print on many cards: section 9), registers `H.lamp(x, y, z)` practicals and `H.glowing(group)` lit panes for the moods, adds every
-walkable construction with `H.walk.add(node)`, names places in `H.spots`, sets `H.setHero(handle, { stride, turn })`,
-adds its world's life (`lib/paper-life.js`: `H.onStep((t, dt) => life.update(dt, H.target))` and
-`H.onRestart(() => life.reset(H.target))`, so `restart(); step(T)` captures repeat; `motion.md` section 12) and calls
-`H.start()`.
+heroHeight, light, lens, walk, play, mood, moods, focus, walkArea, camBox, size, aspect, subject, rotate, autoOpen,
+roam, crossTurn, flapVoicing })` (the view authored for 16:9; size / aspect / subject / view.closer frame any other
+shape: `formats.md`), prints ITS OWN ground with `H.printGround(t => ...)` (the tools are techniques, not a recipe:
+the example's sage washes, river and path are its world's; tools: `washes`, `torn`, `band`, `ribbon`, `bandOf`,
+`line`, `drifts`, `water`), places its pieces with `H.popup(outline, print, { x, z, yaw, cross, node, self, parent,
+solid, level, holes, res, materials, ... })` (print quality follows the lens: rows it blurs print flat and coarse;
+`res` scales a piece's print resolution; `materials: H.printed(pts, paint)` stamps one print on many cards: section
+9), registers `H.lamp(x, y, z)` practicals and `H.glowing(group)` lit panes for the moods, adds every walkable
+construction with `H.walk.add(node)`, names places in `H.spots`, sets its hero if someone walks (`H.setHero(handle,
+{ stride, turn })`), adds its world's life (`lib/paper-life.js`: `H.onStep((t, dt) => life.update(dt, H.target))`,
+`H.onRestart(() => life.reset(H.target))`), and calls `H.start()`.
 
+- **No hero: dioramas, films, worlds you scroll through.** `H.setHero()` is optional. `autoOpen: false` stops the
+  world rising by itself, and you raise things on the clock with `H.cue(t, fn)`, `H.fold(handle, open, delay)` and
+  `H.setOpen(open)`; `H.setCameraController((time, dt, ctx) => ...)` puts the camera on your own path (pass `roam:
+  true`, and `crossTurn: 40` if it orbits more than ~20 degrees); `H.setMusicRenderer((seconds, sampleRate, from) =>
+  ...)` adds a score to `capture.py --audio`; `flapVoicing` takes a `FLAP_PRESETS` entry for this world's paper
+  sound. The wiring, with a worked snippet: `motion.md` section 11.
 - **In your own folder.** Copy `assets/lib/` (and `assets/examples/` only if you import one) and `harness.js`, keep
   the harness as it is, and in your page's import map point `"papercraft/"` at the folder that holds `lib/` (the
   template maps it to `../../`) and `"three"` at three r187 (the template's `index.html` uses the jsDelivr build);
@@ -39,15 +45,18 @@ adds its world's life (`lib/paper-life.js`: `H.onStep((t, dt) => life.update(dt,
   on its own hinge) and `H.dome(x, z, { r, h, n })`; the kit's `fanCard`, `boxFold`, `prismFold` (any footprint, a
   flat lid, a pyramid or a cone) and `platform` go on the page with `H.popup(null, null, { node, height })`;
   `printGround`'s `water(pts, opts)` prints any water body and returns `inside(x, z)` (only when the brief has water;
-  pass your world's colours). The sampler page `structures.html` shows them all.
+  pass your world's colours). The sampler page `structures.html` shows them all (but not the cutout and relief
+  types of section 3).
 - **The hero** is a page-level popup: a 3D paper model facing +z (`mechanisms.md` section 12). `H.setHero(hero,
   { stride: (walked, gait) => ..., turn })`: while walking is on, the harness moves him as the source game moves its
   player (constant-rate acceleration, the heading turning smoothly toward the way he goes so the whole model yaws, a
   forward lean on a springy settle, a roll into turns: `motion.md` section 8) and calls `stride` every step with the
   distance walked and how much he is walking (0 standing .. 1 striding), so the model swings its limbs (the example
-  `heroDoll().userData.stride`). `turn: 'flip'` instead mirrors a flat card left / right (critters, extras). Wherever he
-  starts, on the page or on a deck, he rides what is under him as the world rises, and walks from there; the camera
-  and lens follow him once he has moved.
+  `heroDoll().userData.stride`). `turn: 'flip'` instead mirrors a flat card left / right (critters, extras). Wherever
+  he starts, on the page or on a deck, he rides what is under him as the world rises, and walks from there; the
+  camera and lens follow him once he has moved. He makes one quiet footstep every `step` world units walked (default
+  `heroHeight / 3`: match your stride's step length) on `surface(x, z, walkSurface)` -> a `SURFACES` key (default
+  `'wood'` on a deck, else `'grass'`); `steps: false` for a hero that makes none (`sound.md` section 4).
 - **Walking.** `play: true` walks the hero with WASD / arrows without `?walk` (`?still` gives the fixed overview; the
   3D default is `false`, the 2D harness's is `true`); walking prints every piece in full, because the camera can go
   anywhere (~1.5x the build). The walking camera frames him as the source game does: a still zone round him (short
@@ -80,6 +89,14 @@ adds its world's life (`lib/paper-life.js`: `H.onStep((t, dt) => life.update(dt,
   (optional; placed at `light.distance`), `leak` the shadow tint, `wrap`, `glow` (lit panes) and `lamp`
   (practicals' power) optional, `post` the PaperPost options it overrides. A day world can also just pass
   `light: { leak }` (section 5).
+- **Light that changes over time.** `H.mixMood(a, b = a, k = 0)` applies mood `a` blended `k` (0..1) of the way to
+  mood `b`: names in `moods`, `'day'` (the light the world was built with) or mood objects; a key a mood leaves out
+  takes the day value. It sets key, fill, sky, shadow colour, lit panes, lamps and the `post` keys together, mixing
+  colours in linear light. Call it after `start()`, from a cue, a step hook or the camera controller (`H.onStep((t)
+  => H.mixMood('day', 'night', H.THREE.MathUtils.smoothstep(t, 20, 30)))`); `restart()` puts the starting light
+  back. The `H.lamp()` practicals are made, dark, by the first blend with a mood that has lamps at either end, so a
+  film that calls it from its first step pays the one recompile there; `H.lampLights` is the list, each with
+  `userData.k`, to dim one by one after the call.
 - **Animation on the clock.** `H.onStep((time, dt) => ...)` animates anything on the harness's fixed clock
   (fireflies, a flickering lamp, a turning wheel), so captures repeat.
 - **Constructions you build yourself** (`boxFold`, `platform`, the example constructions) take `paper: H.paper` and
@@ -127,22 +144,34 @@ const post = new PaperPost(renderer, scene, camera, { /* the template's override
 ```
 
 URL switches of the template (the one list): `?test` (above); `?mood=golden|dusk|night` (section 5); `?walk` (WASD /
-arrows; the camera follows and refits the shadow map); `?still` (the fixed overview, no walking); `?roam` (full-quality
-prints everywhere, for a moving camera); `?diag=key` (the key light alone: the cast-shadow check, `look.md` section
-8b); `?capture` hides the hint; `?ss=2` supersamples (pixel ratio x2, up to 3: review captures, as a DPR-2 screen shows
-the cut edges); `?size=1080x1920` renders exactly that frame (scaled to fit the window), `?aspect=9:16` the largest
-frame of that shape in the window, `?closer=` brings a tall frame closer, `?res=` sets the print resolution and
-`?safe=all|meta|tiktok|shorts` outlines a vertical platform's safe area (`formats.md`). The capture hook `window.__papercraft` has `restart()` (a full reset: hinges, hero, camera),
-`step(seconds)`, `resume()`, `toggle()` (fold flat / open), `walkPath(points)` (reached < of = blocked; it reports
-`blockedBy`, the height and the surface it ends on), `walkMap(...)`, `place(x, z)`, `steer(x, z)` (walk him that way, as if on a stick; null stops: scripted clips), `heroPos`, `look(x, z, dist, y)`
-(a close review frame, the lens focused there; `look(heroPos.x, heroPos.z, 13)` frames the hero), `cards()` (the
-standing cards in frame: the density check), `printStats(n)` (what the build spent printing, by the scene line that
-asked: section 9), `sight()` (the rays to the hero a construction blocks, and the sight assist's offsets: `motion.md`
-section 10), `clips()` (the hero's card pairs that cut into each other, standing and through his stride:
-`mechanisms.md` section 12), `spots`, `buildMs`, `frame` (the output frame and its lens: `H.frame`), `ready`, and `post`, `scene`,
-`camera`, `walk`, `view`, `target`, `pieces` for inspection. `scripts/capture.py <project> [shots] --size <format>`
-drives all of it headless (overview, midrise, test, key, mood=, look=, spot=, walk=, at=, hold=, video=, route=) and prints the
-build, the frame, the slowest prints and every page error.
+arrows; the camera follows and refits the shadow map); `?still` (the fixed overview, no walking); `?roam`
+(full-quality prints everywhere, for a moving camera; the `roam` option does the same); `?diag=key` (the key light
+alone: the cast-shadow check, `look.md` section 8b); `?capture` hides the hint; `?ss=2` supersamples (pixel ratio x2,
+up to 3: review captures, as a DPR-2 screen shows the cut edges); `?size=1080x1920` renders exactly that frame (scaled
+to fit the window), `?aspect=9:16` the largest frame of that shape in the window, `?closer=` brings a tall frame
+closer, `?res=` sets the print resolution and `?safe=all|meta|tiktok|shorts` outlines a vertical platform's safe area
+(`formats.md`).
+
+The capture hook `window.__papercraft` has:
+- the clock: `restart()` (a full reset: hinges, hero, camera, cues), `step(seconds)`, `resume()`, `time`, `ready`;
+- the world: `toggle()` (fold flat / open), `setOpen(bool)`, `pieces`, `spots`, `buildMs`, `frame` (the output frame
+  and its lens: `H.frame`), `cards()` (the standing cards in frame: the density check), `printStats(n)` (what the
+  build spent printing, by the scene line that asked: section 9);
+- the hero: `walkPath(points)` (reached < of = blocked; it reports `blockedBy`, the height and the surface it ends
+  on), `walkMap(...)`, `place(x, z)`, `steer(x, z)` (walk him that way, as if on a stick; null stops: scripted clips),
+  `heroPos`, `sight()` (the rays to him a construction blocks, and the sight assist's offsets: `motion.md` section
+  10), `clips()` (his card pairs that cut into each other, standing and through his stride: `mechanisms.md` section
+  12); without a hero these return empty results;
+- review frames: `look(x, z, dist, y)` (a close frame, the lens focused there; `look(heroPos.x, heroPos.z, 13)`
+  frames the hero);
+- sound: `flapEvents` (the paper sounds logged so far) and `renderAudio(seconds, { from })` (the offline paper stem
+  and, with `H.setMusicRenderer`, the score: what `capture.py --audio` calls);
+- and `post`, `scene`, `camera`, `walk`, `view`, `target` for inspection.
+
+`scripts/capture.py <project> [shots] --size <format>` drives all of it headless (overview, midrise, test, key,
+mood=, look=, spot=, walk=, at=, hold=, video=, route=, timeline=, time=: a still at a film time) and prints the
+build, the frame, the slowest
+prints, the hero's clipping check and every page error; frames land in `<project>/frames/` (1600x900 by default).
 
 Units: the defaults assume 1 unit = 1 cm with a ~4 cm hero (the template's is 3.6). If your world uses other units,
 scale `thickness`, `edgeWidth`, `contact.height` (makeCard), `softness`-related `maxPenumbra` (enableSoftShadows),
@@ -205,11 +234,36 @@ treads on two stringers), `ramp`, and `terrace` (a solid box: built masonry the 
 `WalkField` (`paper-motion.js`) collects them (`add`), plus water (`block`), round footprints (`solid`) and long ones
 (`wall`), and moves the hero (`move`, `route`); the template's switches and scripted checks are in section 1.
 
-Outlines must be simple polygons (no self-intersection). Holes (a door to walk through, windows, an arch, the gaps of
-a fence or a ladder): `makeCard(pts, { holes: [outline, ...] })` and `popup(pts, paint, { holes })` cut them in the
-geometry, give their walls the side colour, and `P.rim` rims them like the outline; `boxFold({ holes: { front, left,
-right } })` and `platform({ holes: { face, support } })` take them per panel. Print dark panes instead only where
-nothing needs to show through.
+Outlines must be simple polygons (no self-intersection: `P2.validateOutline(pts)` checks a hand-made contour). Holes
+(a door to walk through, windows, an arch, the gaps of a fence or a ladder): `makeCard(pts, { holes: [outline, ...]
+})` and `popup(pts, paint, { holes })` cut them in the geometry, give their walls the side colour, and `P.rim` rims
+them like the outline; `boxFold({ holes: { front, left, right } })` and `platform({ holes: { face, support } })` take
+them per panel. Print dark panes instead only where nothing needs to show through.
+
+**Cutouts and stepped reliefs** (`structures.md` sections 1 and 4; neither is in the sampler):
+- `imageCard(img, { height, paper, thickness, back, alphaTest, contact, tooth, cross, angle, rim, rimLight, glow,
+  glowColor, glowIntensity })`: a
+  laminated cardstock cutout from a transparent image (a PNG from `scripts/extract_cutouts.py`, a canvas): the
+  paper's fibre multiplied inside the alpha at the size it has on printed cards, contact darkening at the base, dark
+  inner slabs, a kraft or mirrored back or one with its own art, and cast shadows cut to the silhouette (an
+  alpha-tested depth material).
+  `cross: true` adds a slotted second plane that folds flat. `rim` (~0.05, as `makeCard`'s `edgeWidth`) prints the
+  cut edge for art that has none (a photo, a sprite, a logo): the thin dark line all round and the pale highlight on
+  the side facing `rimLight`; leave it 0 for art drawn with its own cut line. Load the image first (`await
+  img.decode()`), then `H.popup(null, null, { node: imageCard(img, { height, paper: H.paper }), x, z, height })`.
+  Its texture follows the print scale; `cardClips` does not check it (no outline): keep cutouts in their own layers.
+  `back` is `'kraft'`, `'mirror'` or an image / canvas of the back's own art, drawn as it looks from behind and to
+  the front's outline mirrored (it is cut to the front's silhouette): whatever lies face-down or turns away shows
+  it, so a piece that does either needs one. `glow` is an image / canvas the size of the art, white where the card
+  is lit (panes, a lamp): those parts glow, `card.userData.setGlow(v)` sets them and `H.glowing(card)` lets the mood
+  drive them, as on printed cards.
+- `extrudedLayerStack(shapeOrPts, { layers, holes, scale, paper, edgeColor, bevel, curveSegments })`: a stepped stack
+  of die-cut layers (an emblem, a logo, an arch, a relief). `layers: [{ depth, color, z, scale, edgeColor,
+  faceCanvas }]` from back to front; keep each `depth` near card thickness (1-2x): the relief comes from stacking
+  sheets, and one thick slab reads as foam board. A face is plain paper in its colour unless you print it
+  (`faceCanvas: printCard(...).canvas`). On a hinge its layers telescope out of the flat (`userData.follow(p)`).
+- `prismFold(footprint, { ..., center: true })` puts the footprint's centroid at local (0, 0) instead of wall 0 on
+  z = 0 (`userData.centroid`): a round tower or a plinth placed by its middle.
 
 ## 4. Hinges and springs
 
@@ -254,7 +308,8 @@ template's values (the kit's defaults are the same directions on a smaller rig: 
 | Shadows | `softness` 0.26, `maxPenumbra` 1.4; map 4096 over `shadowExtent` 50, `distance` 100 | see the frustum note below |
 
 Moods live in the template's `MOODS` table (`?mood=golden|dusk|night`): key, fill, sky, leak, wrap, pane glow, lamp
-pools and lens options, all written from that one place before the first render; the prints never change. Values and
+pools and lens options, all written from that one place (at start, and by `H.mixMood` when the light changes over
+time: section 1); the prints never change. Values and
 why: `look.md` section 8; another light condition starts from its preset in `assets/lights.json` as its own record
 (section 1; `palettes.md` section 4). A low key (golden hour, dusk: 20-35 deg up) needs a deeper shadow box: the
 shadow camera spans 0.4-1.6 x `distance` along the light, so raise it (`createHarness({ light: { distance } })`; a
@@ -298,10 +353,13 @@ day template passes (rows it does not pass are kit defaults). `LENS_DEFAULTS` di
 | `haze`, `hazeStart`, `hazeEnd`, `hazeAmount` | `#d8bf8e`, 34 -> 95, 0.3 | display-space haze by ground distance from `post.focus`: subtle and far, never a colour fog |
 | `vignette`, `vignetteColor`, `grain`, `chroma`, `sharpen` | 0.03, `#2a170b`, 0.012, 0.55, 0.3 | |
 
-Moods overwrite some of these (`Object.assign(post.o, M.post); post.apply()`).
+Moods overwrite some of these (their `post` keys, written by the harness and blended by `H.mixMood`). After changing
+`post.o` yourself, call `post.apply()` for the grade and haze keys; the band, ramp and blur are read every frame.
 
 Set `post.focus` every frame to the point that must be sharp (the hero's chest, the centre of the reveal). Call
 `post.apply()` after changing `post.o` at runtime. `post.view = 1` shows the circle of confusion (red far, green near).
+`PaperPost` sizes its render targets from `renderer.getSize()` at construction (still call `post.setSize(w, h)` on
+resize); `post.dispose()` frees its GPU targets on teardown.
 
 Everything that must look like part of the world has to go through `post.render`: HTML or canvas overlays are not
 graded or blurred; that is fine for a fading hint, wrong for anything that should sit in the scene.
@@ -363,9 +421,10 @@ window.__papercraft = { step(sec, fps = 60) { auto = false; for (let i = 0; i < 
 - **Frame rate:** measure fps in the live loop, never by timing `step()` (the browser defers GPU work past your code);
   under 20 fps the [0, 0.05] s clamp turns play into slow motion, not dropped frames.
 - **Draw calls:** the template keeps one material set per card, and every card draws three groups (face, side,
-  back) in the main pass and again in the shadow pass: ~3,000 calls for ~600 cards (60 fps on a desktop). When draw calls bind (a game, mobile), paint all
-  prints into one atlas canvas, give each card UVs into its cell, and share one material; merge static cards
-  (`BatchedMesh` or `mergeGeometries`); the shipped game went from 400-660 draw calls to ~40 by sharing one material.
+  back) in the main pass and again in the shadow pass: ~3,000 calls for ~600 cards (60 fps on a desktop). When draw
+  calls bind (a game, mobile), paint all prints into one atlas canvas, give each card UVs into its cell, and share
+  one material; merge static cards (`BatchedMesh` or `mergeGeometries`); the shipped game went from 400-660 draw
+  calls to ~40 by sharing one material.
 - **Post cost:** the DOF pass is the expensive part (`taps` 40 at full resolution). For mobile pass `lens: { taps:
   24 }` (a shader define: set it at construction, `post.apply()` does not change it), or render DOF at half resolution
   (a change to PaperPost, which has no option for it); drop `ao` to 0 and `sharpen` to 0 on low tiers.
@@ -375,13 +434,21 @@ window.__papercraft = { step(sec, fps = 60) { auto = false; for (let i = 0; i < 
 - **Quality tiers** that held: high (DPR 2, 4096 shadows, MSAA 4, full post) / med (DPR 1.25, 2048, MSAA 2, fewer
   taps) / low (DPR 1, 1024, no AO, no chroma, fewest taps).
 
-## 10. Pitfalls
+## 10. Pitfalls and API quick reference
 
+- **Exact constructor shapes** (prints go in `paints: { ... }`, never in top-level `paint*` keys; the kit warns):
+  - `boxFold({ w, d, wallH, roofH, paper: H.paper, seed, paints: { front, gable, roof }, holes, print: H.cardOpts(x, z) })`
+  - `prismFold(footprint, { h, roof: 'flat'|'pyramid'|'none', roofH, center: true, paper: H.paper, seed, paints: { wall, roof }, print: H.cardOpts(x, z) })`
+  - `platform({ w, d, h, paper: H.paper, seed, paints: { face, deck, support }, print: H.cardOpts(x, z) })`
+  - `makeCard(pts, { paint, paper: H.paper, ... })`: always pass `{ paper }` (or prebuilt `{ materials }`); inside
+    `paint(P)`, coordinates are Y-up (`P.box.y0 = 0` at the fold base, `P.box.y1 = h` at the top).
 - Sharing one material between a `Mesh` and an `InstancedMesh`/`BatchedMesh`, or toggling `receiveShadow` on shared
   materials, makes three recompute programs every switch (garbage every frame): give each variant its own instance.
-- Changing the number of lights recompiles every program; toggle intensity instead. Compile every shader variant you
+- Changing the number of lights recompiles every program; toggle intensity instead (`H.mixMood` makes the lamps
+  once, dark, and then only sets their intensity). Compile every shader variant you
   will need at start-up (`renderer.compile`) or the first lamp hitches.
-- Alpha-cut cards cast filled shadows unless the shadow pass uses the same alpha test (`customDepthMaterial`).
+- Alpha-cut cards cast filled shadows unless the shadow pass uses the same alpha test (`customDepthMaterial`;
+  `imageCard()` sets it).
 - `Color.set('#hex')` parses a string every call; cache colours in hot loops.
 - A depth texture on an MSAA target is supported in r187; if your three version complains, render depth separately.
 - Night/day or mood changes: write every look value from one place per frame; scattered writers fight each other.

@@ -7,7 +7,7 @@
 // Pairs with paperkit-2d.js for every texture. Tested with three r187 (import map or bundler providing 'three').
 // Units are yours; the defaults assume 1 unit = 1 cm (a 3.6 cm hero, 0.08 cm card).
 import * as THREE from 'three';
-import { paperSheet, normalMap as sheetNormal, printCard, rng, mix, shade, toRGB, toHex, shape as P2shape } from './paperkit-2d.js';
+import { paperSheet, normalMap as sheetNormal, printCard, rng, mix, shade, toRGB, toHex, shape as P2shape, validateOutline } from './paperkit-2d.js';
 import { Spring, FlapSpring, windSway, WalkField } from './paper-motion.js';
 export { Spring, FlapSpring, windSway, WalkField };
 
@@ -80,8 +80,8 @@ function paperLightsChunk() {
  * Dead-matte paper: Lambert with a soft terminator, shadows that leak the world's colour instead of going black, and a back-lit
  * glow. No specular, no environment reflection: any GGX sheen at grazing angles reads as plastic or wet.
  */
-export function paperMaterial({ color = '#ffffff', map = null, normalMap = null, normalScale = 0.4, side = THREE.FrontSide, emissive = null, emissiveIntensity = 1, vertexColors = false } = {}) {
-  const m = new THREE.MeshLambertMaterial({ color, map, normalMap, side, vertexColors });
+export function paperMaterial({ color = '#ffffff', map = null, normalMap = null, normalScale = 0.4, side = THREE.FrontSide, emissive = null, emissiveIntensity = 1, vertexColors = false, alphaTest = 0 } = {}) {
+  const m = new THREE.MeshLambertMaterial({ color, map, normalMap, side, vertexColors, ...(alphaTest > 0 ? { alphaTest } : {}) });
   if (normalMap) m.normalScale.set(normalScale, normalScale);
   if (emissive) { m.emissive.set(emissive); m.emissiveIntensity = emissiveIntensity; }
   m.onBeforeCompile = (shader) => {
@@ -93,7 +93,7 @@ export function paperMaterial({ color = '#ffffff', map = null, normalMap = null,
       .replace('#include <lights_lambert_pars_fragment>', LAMBERT_PAPER)
       .replace('#include <lights_fragment_begin>', paperLightsChunk());
   };
-  m.customProgramCacheKey = () => 'papercraft-paper';
+  m.customProgramCacheKey = () => (alphaTest > 0 ? 'papercraft-paper-cutout' : 'papercraft-paper');
   return m;
 }
 
@@ -161,6 +161,9 @@ export function makeCard(pts, { paint = null, paper, thickness = 0.08, edgeWidth
     const m = new THREE.Mesh(geo, materials); m.castShadow = m.receiveShadow = true;
     m.userData.card = { thickness, outline: geomPts || pts };
     return m;
+  }
+  if (!paper || !paper.sheet || !paper.map) {
+    throw new Error('papercraft makeCard: pass { paper } from paperTextures(renderer, ...) (or prebuilt { materials })');
   }
   const r = rng(seed * 7919 + 13);
   const finish = (P) => {
@@ -420,7 +423,15 @@ export function crossCard(pts, opts = {}) {
  * left one mirrored: 0 to -d). print: card options for every panel (H.cardOpts(x, z): print quality follows the lens).
  * No back wall: from a camera looking down from the front it is rarely seen; add one as a flap if yours sees it.
  */
-export function boxFold({ w = 4, d = 3, wallH = 3, roofH = 1.8, overhang = 0.2, paper, seed = 1, thickness = 0.08, edgeWidth = 0.06, paints = {}, rimLight, holes = {}, print = {} } = {}) {
+function warnFlatPaints(fnName, opts, expected, badKeys) {
+  if (!opts || typeof opts !== 'object') return;
+  const hit = badKeys.filter((k) => k in opts && opts[k] != null);
+  if (hit.length) console.warn(`papercraft ${fnName}: pass paints: { ${expected} } instead of top-level ${hit.join(', ')}`);
+}
+
+export function boxFold(opts = {}) {
+  warnFlatPaints('boxFold', opts, 'front, gable, roof', ['paint', 'paintFront', 'paintGable', 'paintSide', 'paintRoof']);
+  const { w = 4, d = 3, wallH = 3, roofH = 1.8, overhang = 0.2, paper, seed = 1, thickness = 0.08, edgeWidth = 0.06, paints = {}, rimLight, holes = {}, print = {} } = opts;
   const g = new THREE.Group();
   const base = { paper, thickness, edgeWidth, back: 'kraft', ...(rimLight ? { rimLight } : {}), pxPerUnit: print.pxPerUnit ?? 64, effects: print.effects ?? 1 };
   const front = makeCard(P2shape.rect(w, wallH), { ...base, seed, paint: paints.front, folds: ['bottom', 'left', 'right'], holes: holes.front || null });
@@ -505,8 +516,11 @@ export function fanCard(pts, opts = {}) {
  * paint | [paint, ...] (cycled round the walls), roof: paint | [paint, ...] }. holes: { [wallIndex]: [outline, ...] } in the wall's own frame (x
  * from 0 to its length, y up). print: card options for every panel (H.cardOpts(x, z)). Put it on a hinge (a node).
  * With a flat lid, userData.top is a frame on the lid to build on (another structure type on top: a composition).
+ * center: true shifts the folded prism so its footprint centroid sits at local (0, 0) instead of front wall on z = 0.
  */
-export function prismFold(footprint, { h = 3, roof = 'flat', roofH = 1.6, paper, seed = 1, thickness = 0.08, edgeWidth = 0.06, paints = {}, holes = {}, rimLight, print = {} } = {}) {
+export function prismFold(footprint, opts = {}) {
+  warnFlatPaints('prismFold', opts, 'wall, roof', ['paint', 'paintWall', 'paintRoof', 'paintSide']);
+  const { h = 3, roof = 'flat', roofH = 1.6, paper, seed = 1, thickness = 0.08, edgeWidth = 0.06, paints = {}, holes = {}, rimLight, print = {}, center = false } = opts;
   // normalise: the first edge on x, centred on the origin, the shape behind it (z <= 0)
   const [p0, p1] = footprint, ang = Math.atan2(p1[1] - p0[1], p1[0] - p0[0]), ca = Math.cos(-ang), sa = Math.sin(-ang);
   let fp = footprint.map(([x, z]) => [(x - p0[0]) * ca - (z - p0[1]) * sa, (x - p0[0]) * sa + (z - p0[1]) * ca]);
@@ -518,13 +532,15 @@ export function prismFold(footprint, { h = 3, roof = 'flat', roofH = 1.6, paper,
   const len = (i) => Math.hypot(fp[(i + 1) % n][0] - fp[i][0], fp[(i + 1) % n][1] - fp[i][1]);
   const head = (i) => Math.atan2(-(fp[(i + 1) % n][1] - fp[i][1]), fp[(i + 1) % n][0] - fp[i][0]);   // rotation about +y
   const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
-  const g = new THREE.Group(), joints = [], tris = [];
+  const g = new THREE.Group(), body = new THREE.Group(), joints = [], tris = [];
+  g.add(body);
   // the tube's flattening fold: after the wall where half the perimeter is reached (the walls before it lie in a line,
   // the rest fold back flat behind them)
   let per = 0; for (let i = 0; i < n; i++) per += len(i);
   let fold = n - 2; for (let i = 0, acc = 0; i < n - 1; i++) { acc += len(i); if (acc >= per / 2 - 1e-6) { fold = i; break; } }
   let cx = 0, cz = 0; for (const [x, z] of fp) { cx += x / n; cz += z / n; }
-  let frame = g;
+  if (center) body.position.set(-cx, 0, -cz);
+  let frame = body;
   for (let i = 0; i < n; i++) {
     const Li = len(i);
     const wall = makeCard(P2shape.rect(Li, h).map(([x, y]) => [x + Li / 2, y]), { ...base, seed: seed + i * 7, paint: pick(paints.wall, i), holes: holes[i] || null,
@@ -553,7 +569,7 @@ export function prismFold(footprint, { h = 3, roof = 'flat', roofH = 1.6, paper,
     // pieces put in it (popup(..., { parent: node.userData.top }): a lamp, a dome, a rooftop garden) ride the lid
     const top = new THREE.Group(); top.rotation.x = Math.PI / 2; top.position.set(cx, -cz, thickness * 0.6);
     lid.add(top); g.userData.top = top;
-    g.add(lid);
+    body.add(lid);
   }
   const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   g.userData.follow = (p) => {
@@ -563,7 +579,8 @@ export function prismFold(footprint, { h = 3, roof = 'flat', roofH = 1.6, paper,
     if (lid) lid.rotation.x = -(Math.PI / 2) * e2;
   };
   g.userData.follow(1);
-  g.userData.footprint = fp;   // the normalised footprint (front wall on x, the shape behind): for a walk solid or wall
+  g.userData.footprint = center ? fp.map(([x, z]) => [x - cx, z - cz]) : fp;
+  g.userData.centroid = center ? [0, 0] : [cx, cz];
   return g;
 }
 
@@ -580,7 +597,9 @@ export function prismFold(footprint, { h = 3, roof = 'flat', roofH = 1.6, paper,
  * windows), in the card's own frame. print: card options for every card (H.cardOpts(x, z)). The group comes with a walk
  * surface on its deck (userData.walk: the deck rectangle, reaching 0.12 past its edges); replace it for a custom deck.
  */
-export function platform({ w = 4, d = 3, h = 2, paper, paints = {}, support = true, seed = 1, thickness = 0.08, edgeWidth = 0.06, facePts = null, deckPts = null, supportPts = null, rimLight, holes = {}, print = {} } = {}) {
+export function platform(opts = {}) {
+  warnFlatPaints('platform', opts, 'face, deck, support', ['paint', 'paintFace', 'paintDeck', 'paintSupport']);
+  const { w = 4, d = 3, h = 2, paper, paints = {}, support = true, seed = 1, thickness = 0.08, edgeWidth = 0.06, facePts = null, deckPts = null, supportPts = null, rimLight, holes = {}, print = {} } = opts;
   // facePts / deckPts / supportPts: custom outlines (a domed shell, an island's rock face, a stage apron). Keep the fold
   // edges straight: the face's base on y = 0 and its top fold on y = h; the deck's front fold on y = 0 (its back edge on
   // y = d if there is a support); the support's top on y = 0, hanging down to y = -h.
@@ -625,6 +644,306 @@ export function clusterLayout(x, z, { n = 4, size = 1, seed = 1, spread = 0.5 } 
     out.push({ x: x + side + (r() - 0.5) * 0.08 * size, z: z + i * 0.07 * size * (1 + spread * 2), scale: Math.pow(0.91, i), yaw: (r() - 0.5) * 0.5 });
   }
   return out;
+}
+
+/**
+ * Laminated cardstock cutout from a transparent image (HTMLImageElement, HTMLCanvasElement, or ImageBitmap — e.g.
+ * extracted by scripts/extract_cutouts.py). Applies cotton-rag paper tooth inside the alpha channel, contact darkening
+ * along the base, dark laminated inner slabs, a kraft or mirrored back, and an alpha-tested customDepthMaterial so
+ * cast shadows match the exact cutout silhouette (never a rectangle). Stands on y = 0 facing +Z; put it on a hinge().
+ * cross: true adds a slotted second cutout plane split into folding halves (folds flat without scissoring).
+ * rim: the printed cut edge for art that has none (a photo, a sprite, a logo): the width in world units of the pale
+ * highlight on the edges facing rimLight (~0.05, as makeCard's edgeWidth), with the thin dark cut line all round.
+ * Leave it 0 for art drawn with its own cut line (references/image-gen.md section 8): two rims read as a sticker.
+ * The fibre multiplied into the art has the size it has on printed cards, whatever the image's resolution, and the
+ * texture follows the print scale (a 4K frame keeps twice the pixels). Not covered by cardClips (no outline): keep
+ * cutouts in their own layers by hand.
+ * back: 'kraft' (default), 'mirror' (the same art, as a die-cut printed through) or an image / canvas of the back's
+ * own art, drawn as it looks from behind (a figure's back, a pencil drawing of the piece): it is cut to the front's
+ * silhouette, so draw it to the same outline, mirrored.
+ * glow: an image / canvas the size of the art, white where the card is lit (window panes, a lamp, a screen) and black
+ * or clear elsewhere: those parts glow in glowColor at glowIntensity (~0.35 by day, ~1-1.5 at night), and
+ * card.userData.setGlow(v) changes it (the 3D harness: H.glowing(card) lets the mood drive it).
+ */
+export function imageCard(img, { height = 3, paper = null, thickness = 0.08, back = 'kraft', backColor = null, edgeColor = null, alphaTest = 0.42, flipX = false, contact = 0.22, tooth = 0.48, maxPx = 1024, cross = false, angle = 90, rim = 0, rimLight = [-0.55, 0.83], glow = null, glowColor = '#ffc45a', glowIntensity = 0.35 } = {}) {
+  const sw = img.naturalWidth || img.width || 1, sh = img.naturalHeight || img.height || 1;
+  const w = height * (sw / sh);
+  const scaleDown = Math.min(1, maxPx * PRINT_SCALE / Math.max(sw, sh));
+  const cw = Math.max(2, Math.round(sw * scaleDown)), ch = Math.max(2, Math.round(sh * scaleDown));
+
+  const frontC = document.createElement('canvas'); frontC.width = cw; frontC.height = ch;
+  const fg = frontC.getContext('2d');
+  fg.save();
+  if (flipX) { fg.translate(cw, 0); fg.scale(-1, 1); }
+  fg.drawImage(img, 0, 0, cw, ch);
+  fg.restore();
+
+  // sample mean opaque colour so edge & kraft back harmonise with the cutout
+  const px = fg.getImageData(0, 0, cw, ch).data;
+  let sr = 0, sg = 0, sb = 0, sn = 0;
+  const step = Math.max(1, Math.floor((cw * ch) / 4096));
+  for (let i = 0; i < cw * ch; i += step) {
+    const a = px[i * 4 + 3];
+    if (a > 128) { sr += px[i * 4]; sg += px[i * 4 + 1]; sb += px[i * 4 + 2]; sn++; }
+  }
+  const avg = sn ? toHex([Math.round(sr / sn), Math.round(sg / sn), Math.round(sb / sn)]) : '#d6c8b0';
+  const ppu = ch / height;                                    // canvas px per world unit
+  // the paper sheet at the size it has on printed cards (~64 px per unit), whatever this image's resolution
+  const fibre = (ctx) => { const pat = ctx.createPattern(paper.sheet, 'repeat'); if (pat && pat.setTransform) pat.setTransform(new DOMMatrix().scale(Math.min(8, Math.max(0.5, ppu / 64)))); return pat; };
+  const blank = () => { const c = document.createElement('canvas'); c.width = cw; c.height = ch; return c; };
+
+  if (rim > 0) {
+    // The cut edge as printed cards carry it (P.rim): a thin dark line right at the silhouette, a pale highlight just
+    // inside it only on the edges that face the light. Built from the alpha: the silhouette pulled in by the line's
+    // width (the intersection of shifted copies) leaves the line; that inner shape minus itself shifted away from the
+    // light leaves the lit band.
+    const dpx = Math.max(1.2, rim * 0.42 * ppu), hpx = Math.max(1.5, rim * ppu), ln = Math.hypot(rimLight[0], rimLight[1]) || 1;
+    const sil = blank(); sil.getContext('2d').drawImage(frontC, 0, 0);
+    const inner = blank(), ix = inner.getContext('2d');
+    ix.drawImage(sil, 0, 0); ix.globalCompositeOperation = 'destination-in';
+    for (let i = 0; i < 12; i++) ix.drawImage(sil, Math.cos(i / 12 * Math.PI * 2) * dpx, Math.sin(i / 12 * Math.PI * 2) * dpx);
+    const band = (cut, colour) => {              // sil-or-inner minus `cut`, filled with one colour
+      const c = blank(), x = c.getContext('2d');
+      cut(x); x.globalCompositeOperation = 'source-in'; x.fillStyle = colour; x.fillRect(0, 0, cw, ch);
+      return c;
+    };
+    const lit = band((x) => { x.drawImage(inner, 0, 0); x.globalCompositeOperation = 'destination-out'; x.drawImage(inner, -rimLight[0] / ln * hpx, rimLight[1] / ln * hpx); }, mix(avg, '#fff3d8', 0.72));
+    const dark = band((x) => { x.drawImage(sil, 0, 0); x.globalCompositeOperation = 'destination-out'; x.drawImage(inner, 0, 0); }, mix(shade(avg, -0.55), '#3a2412', 0.5));
+    fg.save(); fg.globalCompositeOperation = 'source-atop';
+    fg.globalAlpha = 0.5; fg.drawImage(lit, 0, 0);
+    fg.globalAlpha = 0.85; fg.drawImage(dark, 0, 0);
+    fg.restore();
+  }
+
+  if (paper && paper.sheet && tooth > 0) {
+    // Multiply paper fibre grain into the art (never alpha-over, which washes out colours!) and preserve exact cutout alpha
+    const alphaSnap = document.createElement('canvas'); alphaSnap.width = cw; alphaSnap.height = ch;
+    alphaSnap.getContext('2d').drawImage(frontC, 0, 0);
+    fg.save();
+    fg.globalCompositeOperation = 'multiply';
+    fg.globalAlpha = tooth;
+    const pat = fibre(fg);
+    if (pat) { fg.fillStyle = pat; fg.fillRect(0, 0, cw, ch); }
+    fg.globalCompositeOperation = 'destination-in';
+    fg.globalAlpha = 1;
+    fg.drawImage(alphaSnap, 0, 0);
+    fg.restore();
+  }
+  if (contact > 0) {
+    fg.save();
+    fg.globalCompositeOperation = 'source-atop';
+    const gr = fg.createLinearGradient(0, ch, 0, ch * 0.82);
+    gr.addColorStop(0, `rgba(52,30,14,${contact})`);
+    gr.addColorStop(1, 'rgba(52,30,14,0)');
+    fg.fillStyle = gr; fg.fillRect(0, ch * 0.8, cw, ch * 0.22);
+    fg.restore();
+  }
+
+  const aniso = paper?.map?.anisotropy || 4;
+  const frontTex = new THREE.CanvasTexture(frontC);
+  frontTex.colorSpace = THREE.SRGBColorSpace; frontTex.anisotropy = aniso;
+
+  const makeSolidMaskTex = (hex) => {
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(frontC, 0, 0);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = hex; ctx.fillRect(0, 0, cw, ch);
+    if (paper && paper.sheet) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.45;
+      const pat = fibre(ctx);
+      if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, cw, ch); }
+      ctx.globalCompositeOperation = 'destination-in';
+      ctx.globalAlpha = 1;
+      ctx.drawImage(frontC, 0, 0);
+    }
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso;
+    return t;
+  };
+
+  const coreCol = edgeColor || edgeColorFor(avg);
+  const coreTex = makeSolidMaskTex(coreCol);
+  const isArt = (v) => !!v && typeof v === 'object' && ((v.naturalWidth || v.width) > 0);
+  const makeBackArtTex = (art) => {          // the back's own art: seen from behind it reads the right way round
+    const c = blank(), ctx = c.getContext('2d');
+    ctx.fillStyle = backColor || mix(avg, '#e8d3ac', 0.45); ctx.fillRect(0, 0, cw, ch);   // kraft wherever the art is clear
+    ctx.save();
+    if (!flipX) { ctx.translate(cw, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(art, 0, 0, cw, ch);
+    ctx.restore();
+    if (paper && paper.sheet && tooth > 0) {
+      ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = tooth;
+      const pat = fibre(ctx);
+      if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, cw, ch); }
+      ctx.globalAlpha = 1;
+    }
+    ctx.globalCompositeOperation = 'destination-in';   // cut to the front's silhouette: one card, one outline
+    ctx.drawImage(frontC, 0, 0);
+    const tx = new THREE.CanvasTexture(c);
+    tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = aniso;
+    return tx;
+  };
+  const backTex = back === 'mirror' ? frontTex : isArt(back) ? makeBackArtTex(back) : makeSolidMaskTex(backColor || mix(avg, '#e8d3ac', 0.45));
+
+  const frontMat = paperMaterial({ map: frontTex, normalMap: paper?.normalMap || null, normalScale: 0.55, alphaTest });
+  const litMats = [];
+  if (isArt(glow)) {                         // lit panes: an emissive map, as makeCard's P.glow
+    const c = blank(), ctx = c.getContext('2d');
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cw, ch);
+    ctx.save();
+    if (flipX) { ctx.translate(cw, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(glow, 0, 0, cw, ch);
+    ctx.restore();
+    const e = new THREE.CanvasTexture(c); e.colorSpace = THREE.SRGBColorSpace;
+    frontMat.emissiveMap = e; frontMat.emissive.set(glowColor); frontMat.emissiveIntensity = glowIntensity;
+    litMats.push(frontMat);
+  }
+  const backMat = paperMaterial({ map: backTex, normalMap: paper?.normalMap || null, normalScale: 0.45, alphaTest });
+  const coreMat = paperMaterial({ map: coreTex, normalMap: paper?.normalMap || null, normalScale: 0.25, side: THREE.DoubleSide, alphaTest });
+  const depthMat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: frontTex, alphaTest });
+  const depthMatDouble = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: frontTex, alphaTest, side: THREE.DoubleSide });
+
+  const buildSlab = (x0, x1, u0, u1, shadeMul = 1) => {
+    const sw2 = x1 - x0;
+    const planeGeo = (flipBack) => {
+      const geo = new THREE.PlaneGeometry(sw2, height);
+      const uv = geo.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        const u = uv.getX(i);
+        // Back plane is rotated PI around Y BEFORE translating, so its local +x becomes -x; flip U to stay aligned with front art
+        uv.setX(i, flipBack ? u1 - u * (u1 - u0) : u0 + u * (u1 - u0));
+      }
+      if (flipBack) geo.rotateY(Math.PI);
+      geo.translate((x0 + x1) / 2, height / 2, 0);
+      return geo;
+    };
+    const fM = shadeMul === 1 ? frontMat : (() => { const c = cloneMaterial(frontMat); c.color.multiplyScalar(shadeMul); if (litMats.length) litMats.push(c); return c; })();
+    const bM = shadeMul === 1 ? backMat : (() => { const c = cloneMaterial(backMat); c.color.multiplyScalar(shadeMul); return c; })();
+    const cM = shadeMul === 1 ? coreMat : (() => { const c = cloneMaterial(coreMat); c.color.multiplyScalar(shadeMul); return c; })();
+    const sub = new THREE.Group();
+    const gF = planeGeo(false);
+    const mF = new THREE.Mesh(gF, fM); mF.position.z = thickness * 0.5;
+    mF.castShadow = mF.receiveShadow = true; mF.customDepthMaterial = depthMat;
+    const gB = planeGeo(true);
+    const mB = new THREE.Mesh(gB, bM); mB.position.z = -thickness * 0.5;
+    mB.castShadow = mB.receiveShadow = true; mB.customDepthMaterial = depthMat;
+    const mC1 = new THREE.Mesh(gF, cM); mC1.position.z = -thickness * 0.16;
+    mC1.castShadow = false; mC1.receiveShadow = true; mC1.customDepthMaterial = depthMatDouble;
+    const mC2 = new THREE.Mesh(gF, cM); mC2.position.z = thickness * 0.16;
+    mC2.castShadow = false; mC2.receiveShadow = true; mC2.customDepthMaterial = depthMatDouble;
+    sub.add(mF, mB, mC1, mC2);
+    return sub;
+  };
+
+  const g = new THREE.Group();
+  g.add(buildSlab(-w / 2, w / 2, 0, 1, 1));
+  if (cross) {
+    const rightHalf = new THREE.Group(); rightHalf.position.z = thickness * 0.9; rightHalf.add(buildSlab(0, w / 2, 0.5, 1, 0.92));
+    const leftHalf = new THREE.Group(); leftHalf.position.z = -thickness * 0.9; leftHalf.add(buildSlab(-w / 2, 0, 0, 0.5, 0.92));
+    g.add(rightHalf, leftHalf);
+    const openAng = (angle * Math.PI) / 180;
+    g.userData.follow = (p) => {
+      const k = Math.min(1, Math.max(0, (p - 0.12) / 0.7)), e = k * k * (3 - 2 * k);
+      rightHalf.rotation.y = -openAng * e;
+      leftHalf.rotation.y = -openAng * e;
+    };
+    g.userData.follow(1);
+  }
+  g.userData.card = { thickness, width: w, height, color: avg };
+  g.userData.setGlow = (v) => { for (const m of litMats) m.emissiveIntensity = v; };   // lights on / off, flicker
+  return g;
+}
+
+/**
+ * Stepped multi-layer 3D die-cut cardstock sculpture (emblems, arches, logos, reliefs, frames).
+ * shape2d: a THREE.Shape or closed polygon [[x, y], ...]; holes: optional array of [[x, y], ...] or THREE.Path.
+ * layers: [{ depth, color, z, scale, edgeColor, faceCanvas }] from back to front. Never adds unrequested ornaments.
+ * Supports g.userData.follow(p) so layers telescope smoothly from flat when mounted on a hinge().
+ * Keep each layer's depth near card thickness (1-2x: ~0.08-0.16 for a 3.6-unit hero): the depth of the relief comes
+ * from stacking sheets, and one much thicker slab reads as foam board. A layer's face is plain paper in its colour
+ * unless you print it (faceCanvas: printCard(...).canvas of the same outline).
+ */
+export function extrudedLayerStack(shape2d, { scale = 1, layers = [{ depth: 0.12, color: '#efe6d2', z: 0 }], holes = null, paper = null, edgeColor = 'auto', bevel = 0.012, curveSegments = 36, seed = 1 } = {}) {
+  let shape;
+  if (shape2d instanceof THREE.Shape) {
+    shape = shape2d;
+  } else {
+    const v = validateOutline(shape2d);
+    if (!v.ok) console.warn(`papercraft extrudedLayerStack: outline issues: ${v.issues.join('; ')}`);
+    shape = new THREE.Shape(shape2d.map(([x, y]) => new THREE.Vector2(x, y)));
+  }
+  if (holes && holes.length) {
+    for (const h of holes) {
+      if (h instanceof THREE.Path) shape.holes.push(h);
+      else {
+        const hv = validateOutline(h);
+        if (!hv.ok) console.warn(`papercraft extrudedLayerStack: hole issues: ${hv.issues.join('; ')}`);
+        shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
+      }
+    }
+  }
+  const pts = shape.getPoints(curveSegments);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const bw = Math.max(1e-4, x1 - x0), bh = Math.max(1e-4, y1 - y0);
+  const aniso = paper?.map?.anisotropy || 4;
+
+  const makeFaceTex = (hex, s) => {
+    // sized by the piece (64 px per unit, as printed cards; finer with the print scale), so the fibre keeps its size
+    const px = (v) => Math.min(2048, Math.max(64, Math.round(v * scale * 64 * PRINT_SCALE)));
+    const tw = px(bw), th = px(bh), c = document.createElement('canvas'); c.width = tw; c.height = th;
+    const ctx = c.getContext('2d');
+    const gr = ctx.createLinearGradient(0, 0, 0, th);
+    gr.addColorStop(0, shade(hex, 0.06)); gr.addColorStop(1, shade(hex, -0.06));
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, tw, th);
+    if (paper && paper.sheet) {
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.globalAlpha = 0.55;
+      const pat = ctx.createPattern(paper.sheet, 'repeat');
+      if (pat && pat.setTransform) pat.setTransform(new DOMMatrix().scale(tw / (bw * scale * 64)));
+      if (pat) { ctx.fillStyle = pat; ctx.fillRect(0, 0, tw, th); }
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    }
+    const r = rng(s * 911 + 17);
+    ctx.fillStyle = 'rgba(255,250,240,0.05)';
+    for (let i = 0, n = Math.min(400, Math.round(40 * tw * th / 65536)); i < n; i++) ctx.fillRect(r() * tw, r() * th, 1 + r() * 4, 1);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso;
+    return t;
+  };
+
+  const g = new THREE.Group();
+  const entries = [];
+  layers.forEach((L, idx) => {
+    const depth = L.depth ?? 0.12, ls = L.scale ?? 1, col = L.color ?? '#efe6d2';
+    const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel * 0.85, bevelSegments: 2, curveSegments });
+    geo.translate(0, 0, -depth / 2);
+    // normalise face UVs to 0..1 across shape bounds so paper textures map evenly without seam tiling
+    const uv = geo.attributes.uv, pos = geo.attributes.position, nrm = geo.attributes.normal;
+    for (let i = 0; i < uv.count; i++) {
+      if (Math.abs(nrm.getZ(i)) > 0.5) uv.setXY(i, (pos.getX(i) - x0) / bw, (pos.getY(i) - y0) / bh);
+    }
+    uv.needsUpdate = true;
+    const faceTex = L.faceCanvas ? (() => { const t = new THREE.CanvasTexture(L.faceCanvas); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso; return t; })() : makeFaceTex(col, seed + idx * 19);
+    const faceMat = paperMaterial({ map: faceTex, normalMap: paper?.normalMap || null, normalScale: 0.55 });
+    const eCol = L.edgeColor || (edgeColor === 'auto' ? edgeColorFor(col) : edgeColor);
+    const sideMat = paperMaterial({ color: eCol, map: paper?.map || null, normalMap: paper?.normalMap || null, normalScale: 0.25 });
+    const mesh = new THREE.Mesh(geo, [faceMat, sideMat]);
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.scale.set(ls * scale, ls * scale, 1);
+    const rz = L.z ?? idx * (depth + 0.04);
+    mesh.position.z = rz;
+    g.add(mesh);
+    entries.push({ mesh, rz });
+  });
+  g.userData.follow = (p) => {
+    const k = Math.min(1, Math.max(0, (p - 0.12) / 0.78)), e = k * k * (3 - 2 * k);
+    for (const { mesh, rz } of entries) mesh.position.z = rz * e;
+  };
+  g.userData.bounds = { x0: x0 * scale, x1: x1 * scale, y0: y0 * scale, y1: y1 * scale, w: bw * scale, h: bh * scale };
+  return g;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -712,13 +1031,14 @@ export function paperLights(scene, { key = '#ffdcb2', keyIntensity = 3.0, keyDir
  * Call when the camera's look-at point moves; the centre snaps to whole shadow texels so soft edges do not crawl. The
  * fill follows too. For a low key (under ~25 deg) also raise paperLights' `distance` so the box's depth covers the scene.
  */
+const _fsC = new THREE.Vector3(), _fsOff = new THREE.Vector3();
 export function fitShadow(lights, center) {
   const k = lights.key, cam = k.shadow.camera, texel = (cam.right - cam.left) / k.shadow.mapSize.x;
-  const c = new THREE.Vector3(Math.round(center.x / texel) * texel, center.y, Math.round(center.z / texel) * texel);
+  _fsC.set(Math.round(center.x / texel) * texel, center.y, Math.round(center.z / texel) * texel);
   for (const L of [lights.key, lights.fill]) {
     if (!L) continue;
-    const off = L.position.clone().sub(L.target.position);
-    L.target.position.copy(c); L.position.copy(c).add(off); L.target.updateMatrixWorld();
+    _fsOff.copy(L.position).sub(L.target.position);
+    L.target.position.copy(_fsC); L.position.copy(_fsC).add(_fsOff); L.target.updateMatrixWorld();
   }
 }
 
@@ -951,7 +1271,16 @@ export class PaperPost {
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.dof);
     this.quad.frustumCulled = false;
+    this._p = new THREE.Vector3(); this._v = new THREE.Vector3(); this._fwd = new THREE.Vector3(); this._sz = new THREE.Vector2();
     this.apply();
+    // Auto-size to the renderer's current canvas so forgetting setSize() never renders a smeared 2x2 quadrant.
+    renderer.getSize(this._sz);
+    if (this._sz.x > 0 && this._sz.y > 0) this.setSize(this._sz.x, this._sz.y);
+  }
+  /** Release all GPU targets, shaders and quad geometry. */
+  dispose() {
+    this.rtScene.depthTexture?.dispose(); this.rtScene.dispose(); this.rtDof.dispose();
+    this.dof.dispose(); this.grade.dispose(); this.debug.dispose(); this.quad.geometry.dispose();
   }
   /** Re-read this.o (call after changing options at runtime). */
   apply() {
@@ -970,7 +1299,7 @@ export class PaperPost {
     this.dof.uniforms.uBoost.value = o.highlightBoost;
   }
   setSize(w, h) {
-    const pr = this.renderer.getPixelRatio(), W = Math.round(w * pr), H = Math.round(h * pr);
+    const pr = this.renderer.getPixelRatio(), W = Math.max(2, Math.round(w * pr)), H = Math.max(2, Math.round(h * pr));
     this.rtScene.setSize(W, H); this.rtDof.setSize(W, H);
     this.dof.uniforms.uRes.value.set(W, H);
     this.H = H; this.S = Math.min(W, H);   // the short side: a 9:16 frame blurs like a 16:9 one of the same width
@@ -982,11 +1311,11 @@ export class PaperPost {
     const { renderer, scene, camera, o } = this;
     const u = this.dof.uniforms, g = this.grade.uniforms, k = (this.S || 1080) / 1080 * (this.magnify ?? 1), bs = this.bandScale ?? 1;
     camera.updateMatrixWorld();
-    const p = this.focus.clone().project(camera);
-    const fz = Math.max(0.01, -this.focus.clone().applyMatrix4(camera.matrixWorldInverse).z);
+    const p = this._p.copy(this.focus).project(camera);
+    const fz = Math.max(0.01, -this._v.copy(this.focus).applyMatrix4(camera.matrixWorldInverse).z);
     const fovY = THREE.MathUtils.degToRad(camera.fov);
-    const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
-    const pitch = Math.max(0.05, Math.asin(Math.min(0.999, -fwd.y)));
+    camera.getWorldDirection(this._fwd);
+    const pitch = Math.max(0.05, Math.asin(Math.min(0.999, -this._fwd.y)));
     u.uKD.value = Math.min(9, 1 / (fovY * (Math.cos(pitch) / Math.sin(pitch))));
     u.uNear.value = camera.near; u.uFar.value = camera.far;
     u.uDof.value.set(THREE.MathUtils.clamp(p.y * 0.5 + 0.5, 0.1, 0.9), fz, o.focusBand * bs, Math.max(0.02, o.ramp * bs));

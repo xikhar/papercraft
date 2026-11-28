@@ -176,8 +176,8 @@ stand in the round, not only for those.
   degrees of seeded jitter and either sign, so the front print reads in full, the cross shows its depth and neither
   plane is ever edge-on (a plane near edge-on reads as a blade or a propeller). Measure against the line from the
   camera to the piece (perspective turns the view by up to ~20 deg toward the frame edges). The 3D harness does all
-  of this when `popup(..., { cross: true })` gets no `yaw`; vary the turns, so a wood of crosses reads deep, never as
-  a row of scenery flats.
+  of this when `popup(..., { cross: true })` gets no `yaw` (for a camera that orbits, `crossTurn` widens the turn:
+  `structures.md` section 3); vary the turns, so a wood of crosses reads deep, never as a row of scenery flats.
 - The family: keep only part of the cross where the thing needs it: a HALF cross (the main card and one half: hidden
   depth behind a face, or a buttress in front), a QUARTER cross (one half of each: a corner), opened wider into a
   V-fold (a ridge: dunes, drifts, outcrops). Top views, uses and the `cross` / `angle` / `second` options:
@@ -517,8 +517,9 @@ The example scene's `heroDoll` (a gardener, 17 cards) is one worked model; write
 A flat card seen edge-on is a knife-thin sliver, the most common "this is CG" tell.
 
 - Small single cards face the camera +-14 deg (`structures.md` section 1; the harness does it when `yaw` is omitted,
-  `clusterLayout`'s yaws do the same). The source's diagonal rule served a camera that turned in 90 deg steps; no
-  camera here does.
+  `clusterLayout`'s yaws do the same). The source's diagonal rule served a camera that turned in 90 deg steps; the
+  harness camera never turns. The turns are measured from the overview camera: under a camera you script to orbit
+  (`motion.md` section 11), check the frames where it is furthest round.
 - Crosses turn their main plane ~24 deg off facing the camera, either sign (section 5; the harness does it when `yaw`
   is omitted); V-fold wings 24-30 deg off the long axis, the opening toward the camera (section 6); fence runs
   zig-zag.

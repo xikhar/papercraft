@@ -8,7 +8,8 @@ Read this when: setting up materials, lights, shadows or post-processing in any 
 "plastic", "flat" or "like stickers" and you need to know why.
 
 Contents: 1 The look; 2 Material; 3 Thickness and edges; 4 Depth cues; 5 Light; 6 Lens; 7 Grade and haze;
-8 Night, weather, moods; 9 Water; 10 Units and scaling; 11 Starting values; 12 Fake-paper tells
+8 Night, weather, moods; 8b Checking the shadows; 9 Water; 10 Units and scaling; 11 Starting values;
+12 Fake-paper tells
 
 ## 1. The look: an open-air world seen from inside
 
@@ -168,7 +169,8 @@ the light.
   from reconstructed world position, `col *= (1 - k*t) * vec3(1 - tint*0.5*t, 1, 1 + tint*t)`, t = ground offset
   along the camera's right vector / radius (just beyond the frame's half width), k 0.12-0.18, tint 0.07.
 - **Keep the light count constant.** Many engines recompile shaders when lights are added or removed: add every lamp
-  before the first render and toggle intensity.
+  before the first render and toggle intensity (the 3D harness makes them at start for a mood with lamps, or on the
+  first `H.mixMood` that names one, and only sets their intensity after that).
 - **Close-ups need relief:** when the camera comes within ~1.5 hero heights of the focus, drop exposure ~15 % and
   remove most of the falloff, or the key side blows out.
 
@@ -229,9 +231,9 @@ Order that shipped (linear scene in, display out):
    fresh, <= 0.1 for teal leads.
 9. Shadow lift toward the mood's shadow tint (umber `#3a200c` by day, navy at night):
    `col += tint * 0.03 * (1 - smoothstep(0, 0.45, luma))` (stops the darkest tones crushing to black).
-10. Haze (below), vignette toward warm umber by day (0.03) and the mood's dark at dusk and night (~0.12, the table in
-    section 8); corners >= ~0.58 of the centre, never black; grain 0.8-1.2 % shaped by luma, seeded per frame so stills
-    repeat.
+10. Haze (below), vignette toward the day's shadow tint (0.03) and the mood's dark at dusk and night (~0.12, the table
+    in section 8); corners >= ~0.58 of the centre, never black; grain 0.8-1.2 % shaped by luma, seeded per frame so
+    stills repeat.
 
 The numbers are the 3D template's (`harness.js`); `PaperPost` on its own defaults a little softer (exposure 0.8, tint
 (1.02, 0.99, 0.97), saturation 0.95, contrast 1.1, green pull 0.25).
@@ -264,12 +266,14 @@ killing edge-on slivers, lighter warm shadows, tighter framing.
 - **Moods by light, not new art.** The prints never change: only light, leak, haze and grade. Keep two constants so
   it stays one world: the structure colour (red-brown wood in the countryside) and the warm window and lamp colour.
   Cut edges need no per-mood colour: `P.rim()` derives them from each print in every mood. If the mood changes at
-  run time, one writer owns every look value and blends the tables (colours in linear), eased.
+  run time, one writer owns every look value and blends the tables (colours in linear), eased: in the 3D harness
+  that writer is `H.mixMood(a, b, k)` (`three-js.md` section 1).
 - **What the kit has.** No bloom and no screen-space spill. Lit panes (`P.glow`, `#ffc45a`) are emissive: `setGlow(v)`
   sets their emissiveIntensity, ~0.35 by day (a few warm windows say "someone lives here"), ~1.1 at dusk, ~1.4 at
   night, at exposure ~1; the lens's highlight boost turns them into soft bokeh. Unlit panes are dim amber paper, never
-  near-black (reads as a hole). Lamp pools: section 5 (`H.lamp`), at doors and lamp posts, added before the first
-  render (the light count is fixed). The paper wrap is ONE global uniform: no per-lamp wrap.
+  near-black (reads as a hole). Lamp pools: section 5 (`H.lamp`), at doors and lamp posts, registered before
+  `start()`; the harness makes their lights when a mood first lights them. The paper wrap is ONE global uniform: no
+  per-lamp wrap.
 - **Night keeps the pieces readable and coloured.** The 3D template lights night with a dim pale-blue moon (about half
   the day key), a blue fill and a blue sky (the Night row below), so every card stays readable and coloured; the warm
   windows and lamp pools carry the warmth, and navy lives in the far haze and the deep shadows (in the shipped night
@@ -369,9 +373,9 @@ The numbers that held up, in one place; the 3D template's `harness.js` uses them
 | Grain / vignette | ~1 %, less inside the blur / 0.03 by day to ~0.12 at dusk and night, warm | |
 | Flap rise | 0.2-0.3 s to upright, overshoot 8-15 %, quiver 4.5 Hz, still by 0.6-1.1 s | |
 | Flap fall | still by 0.5-0.8 s, one bounce under 3 % | |
-| Stagger | 0.3-0.35 s across one piece; ~0.02 s per unit of distance across a scene | |
+| Stagger | 0.2-0.35 s across one piece (its parts 0.05-0.1 s apart); ~0.02 s per unit of distance across a scene | |
 | Idle sway | 0.5-2.5 degrees about the piece's own hinge, 0.4-0.8 Hz, rigid things 0 | |
-| Flap sound | one per gesture, >= 0.5 s apart, band-limited around 2.6 kHz | |
+| Flap sound | one per gesture, >= 0.5 s apart, band-limited around 1.6 kHz (the kit's default voicing: `sound.md`) | |
 
 ## 12. Fake-paper tells (ban list)
 

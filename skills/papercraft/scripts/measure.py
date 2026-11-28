@@ -772,7 +772,10 @@ def expand_inputs(paths, at):
             for t in (at or '0').split(','):
                 out.append(('%s@%ss' % (os.path.basename(p), t.strip()), video_frame(p, t.strip())))
         else:
-            out.append((os.path.basename(p), Image.open(p)))
+            try:
+                out.append((os.path.basename(p), Image.open(p)))
+            except OSError as e:
+                raise SystemExit(f'measure.py: cannot read {p}: {e}')
     return out
 
 

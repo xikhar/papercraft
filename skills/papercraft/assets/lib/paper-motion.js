@@ -1,6 +1,154 @@
 // papercraft / paper-motion.js
 // Engine-free motion for paper: springs, the latched paper-flap spring, wind sway as a pure function of time and
-// place, a fixed-step clock, and the walk field (what the hero may walk on, read from the built constructions). No dependencies; used by paperkit-3d.js and the 2D template, portable to any engine.
+// place, a fixed-step clock, smooth glide schedules, polar camera & continuity verification, and the walk field
+// (what the hero may walk on, read from the built constructions). No dependencies; used by paperkit-3d.js and the 2D
+// template, portable to any engine.
+
+/** C2 quintic smootherstep in [0, 1] over [e0, e1] (supports ascending e0 < e1 or descending e0 > e1). */
+export function smootherstep(e0, e1, x) {
+  const span = e1 - e0;
+  if (Math.abs(span) < 1e-9) return x >= e1 ? 1 : 0;
+  const t = Math.max(0, Math.min(1, (x - e0) / span));
+  return t * t * t * (t * (t * 6 - 15) + 10);
+}
+
+/**
+ * Velocity-integrated [0..1] progress curve for smooth camera scrolls or dolly journeys:
+ * holds at 0 during `holdStart` (while opening pieces unfold), eases gently into glide over `easeIn`, optionally
+ * slows across scenic `dips` ([{ at: 0..1, amount: 0.15, width: 0.05 }] or [{ u, factor, width }]), eases to a stop
+ * over `easeOut`, and holds at 1 during `holdEnd`.
+ * A dip's `at` (or `u`) and `width` are fractions of the glide's TIME (between the holds), not of its progress: to slow
+ * at a landmark, find the time it passes (sample the returned function) and put the dip there.
+ * Returns a callable function `t => progress` (in [0, 1]) with `.samples` (Float64Array), `.duration`, and `.fps`.
+ * The holds must leave time to glide: holdStart + holdEnd >= duration jumps from 0 to 1 (it warns).
+ */
+export function glideSchedule({ duration = 12, fps = 60, holdStart = 1.0, easeIn = 2.0, easeOut = 1.6, holdEnd = 1.5, dips = [] } = {}) {
+  const nTotal = Math.max(1, Math.round(duration * fps));
+  const nOpen = Math.min(nTotal, Math.max(0, Math.round(holdStart * fps)));
+  const nEnd = Math.min(nTotal - nOpen, Math.max(0, Math.round(holdEnd * fps)));
+  const nGlide = Math.max(0, nTotal - nOpen - nEnd);
+  const out = new Float64Array(nTotal);
+  if (nGlide < 2 && typeof console !== 'undefined') console.warn(`papercraft glideSchedule: holdStart (${holdStart}) + holdEnd (${holdEnd}) leave no time to glide in ${duration} s: the progress jumps`);
+  if (nGlide === 0) {
+    for (let i = nOpen; i < nTotal; i++) out[i] = 1;
+  } else {
+    const glideDur = nGlide / fps;
+    const inU = Math.min(0.45, Math.max(0, easeIn) / Math.max(1e-6, glideDur));
+    const outU = Math.min(0.45, Math.max(0, easeOut) / Math.max(1e-6, glideDur));
+    const w = new Float64Array(nGlide);
+    let sum = 0;
+    for (let i = 0; i < nGlide; i++) {
+      const u = (i + 0.5) / nGlide;
+      const sIn = inU > 0 ? smootherstep(0, inU, u) : 1;
+      const rIn = u < inU ? sIn * sIn : 1;
+      const rOut = outU > 0 ? smootherstep(0, outU, 1 - u) : 1;
+      let dip = 1;
+      for (const d of dips) {
+        const pos = d.at ?? d.u ?? 0.5;
+        const amt = Math.max(0, Math.min(0.85, d.amount ?? (d.factor != null ? 1 - d.factor : 0.15)));
+        const wid = Math.max(1e-3, d.width ?? 0.05);
+        dip *= 1 - amt * Math.exp(-(((u - pos) / wid) ** 2));
+      }
+      w[i] = Math.max(1e-6, rIn * rOut * dip);
+      sum += w[i];
+    }
+    let acc = 0;
+    for (let i = 0; i < nGlide; i++) { acc += w[i]; out[nOpen + i] = acc / sum; }
+    for (let i = nOpen + nGlide; i < nTotal; i++) out[i] = 1;
+  }
+  const fn = (t) => {
+    if (t <= 0) return out[0];
+    if (t >= duration) return out[nTotal - 1];
+    const f = Math.min(nTotal - 1, Math.max(0, t * fps));
+    const i0 = Math.floor(f), i1 = Math.min(nTotal - 1, i0 + 1);
+    return out[i0] + (out[i1] - out[i0]) * (f - i0);
+  };
+  fn.samples = out;
+  fn.duration = duration;
+  fn.fps = fps;
+  fn.at = fn;
+  return fn;
+}
+
+/**
+ * Polar camera position around `target` ([x, y, z] array) with azimuth `azim` in RADIANS (0 = the camera on +z, as
+ * the harness's yaw 0; the harness's view.yaw is in degrees), elevation `pitchDeg` in degrees (40-55 typical),
+ * distance `dist`, and subtle tripod breathing drift. Pure function, engine-free. Returns [x, y, z].
+ */
+export function polarCameraPos({ target = [0, 0, 0], azim = 0, pitchDeg = 44, dist = 36, time = 0, drift = 0.12 } = {}) {
+  const p = (pitchDeg * Math.PI) / 180, horiz = dist * Math.cos(p);
+  const bx = drift ? Math.sin(time * 0.62) * drift : 0;
+  const by = drift ? Math.sin(time * 0.85 + 1.0) * drift * 0.55 : 0;
+  return [
+    target[0] + Math.sin(azim) * horiz + bx,
+    target[1] + dist * Math.sin(p) + by,
+    target[2] + Math.cos(azim) * horiz,
+  ];
+}
+
+/**
+ * Automated continuity check for scripted character/camera evaluators: steps `evalFn(t)` across [0, duration] at `fps`
+ * and catches position teleports, camera distance snaps, yaw / azimuth / pitch snaps and non-finite values BEFORE
+ * rendering a video. evalFn(t) returns any subset of { pos: [x,y,z] | {x,y,z}, x, y, z, yaw, azim (radians), pitchDeg
+ * (degrees), dist }. An angle that wraps across +-PI is not a jump (the shortest arc is compared).
+ * The limits are per frame at 60 fps, scaled to `fps`, in YOUR world units: the defaults suit a ~3.6-unit hero (0.55
+ * units is 9 hero heights per second); pass maxPosStep / maxDistStep for another scale, maxAngleStep (rad) and
+ * maxPitchStep (deg) for the angles. Returns { ok, issues: [{ t, kind, field, delta }] }.
+ * cuts: [seconds, ...] where the film cuts on purpose: the step that crosses a cut is not compared (a film of several
+ * shots is checked inside each shot). loop: true also compares the last frame with the first, for a film whose end
+ * runs back into its start (that issue has t = duration and seam: true).
+ */
+export function checkContinuity(evalFn, { duration = 10, fps = 60, maxPosStep = null, maxAngleStep = null, maxDistStep = null, maxPitchStep = null, cuts = [], loop = false } = {}) {
+  const scale = 60 / Math.max(1, fps);
+  const limPos = maxPosStep ?? 0.55 * scale;
+  const limAng = maxAngleStep ?? 0.45 * scale;
+  const limDist = maxDistStep ?? 0.8 * scale;
+  const limPitch = maxPitchStep ?? 6 * scale;
+  const bad = (v) => v != null && !Number.isFinite(v);
+  const n = Math.max(2, Math.round(duration * fps)), jumps = [];
+  const getPos = (s) => {
+    if (!s) return null;
+    if (Array.isArray(s.pos)) return [s.pos[0] ?? 0, s.pos[1] ?? 0, s.pos[2] ?? 0];
+    if (s.pos && typeof s.pos === 'object') return [s.pos.x ?? 0, s.pos.y ?? 0, s.pos.z ?? 0];
+    if (s.x != null || s.y != null || s.z != null) return [s.x ?? 0, s.y ?? 0, s.z ?? 0];
+    return null;
+  };
+  const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
+  const compare = (prev, cur, t, extra) => {                       // one step: what moved further than a frame may
+    const prevPos = getPos(prev), curPos = getPos(cur), at = +t.toFixed(3);
+    if (curPos && prevPos) {
+      const dp = Math.hypot(curPos[0] - prevPos[0], curPos[1] - prevPos[1], curPos[2] - prevPos[2]);
+      if (dp > limPos) jumps.push({ t: at, kind: 'pos', field: 'pos', delta: +dp.toFixed(3), ...extra });
+    }
+    for (const k of ['yaw', 'azim']) {
+      if (cur?.[k] != null && prev?.[k] != null) {
+        const da = angDiff(prev[k], cur[k]);
+        if (da > limAng) jumps.push({ t: at, kind: k, field: k, delta: +da.toFixed(3), ...extra });
+      }
+    }
+    if (cur?.dist != null && prev?.dist != null) {
+      const dd = Math.abs(cur.dist - prev.dist);
+      if (dd > limDist) jumps.push({ t: at, kind: 'dist', field: 'dist', delta: +dd.toFixed(3), ...extra });
+    }
+    if (cur?.pitchDeg != null && prev?.pitchDeg != null) {
+      const dq = Math.abs(cur.pitchDeg - prev.pitchDeg);
+      if (dq > limPitch) jumps.push({ t: at, kind: 'pitch', field: 'pitchDeg', delta: +dq.toFixed(3), ...extra });
+    }
+  };
+  const cutList = Array.isArray(cuts) ? cuts : cuts == null ? [] : [cuts];
+  const first = evalFn(0);
+  let prev = first, prevT = 0;
+  for (let i = 1; i <= n; i++) {
+    const t = (i / n) * duration, cur = evalFn(t), curPos = getPos(cur);
+    // a NaN or Infinity anywhere is a broken frame (comparisons with NaN are false, so it would pass silently)
+    const nf = [...(curPos || []).map((v, j) => [v, 'pos.' + 'xyz'[j]]), [cur?.yaw, 'yaw'], [cur?.azim, 'azim'], [cur?.pitchDeg, 'pitchDeg'], [cur?.dist, 'dist']].filter(([v]) => bad(v));
+    for (const [, field] of nf) jumps.push({ t: +t.toFixed(3), kind: 'nan', field, delta: NaN });
+    if (!cutList.some((c) => c > prevT && c <= t)) compare(prev, cur, t);   // a step across a cut is meant to jump
+    prev = cur; prevT = t;
+  }
+  if (loop) compare(prev, first, duration, { seam: true });       // the last frame must run into the first
+  return { ok: jumps.length === 0, issues: jumps, jumps };
+}
 
 /**
  * Damped spring, sub-stepped at 240 Hz (frame-rate independent). hz = natural frequency, zeta = damping ratio.

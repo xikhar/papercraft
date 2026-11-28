@@ -55,8 +55,9 @@ Both templates take the output frame from `?size=1080x1920` (exactly those pixel
   (`H.frame.printScale`; `?res=` sets it); the live window keeps 1x so phones build fast.
 - `H.frame` = { w, h, aspect, fovY, wide, tall, lat, mag, printScale }: branch on it when a format needs its own
   touch (a taller backdrop, a different landmark in a square frame).
-- 2D (`harness-2d.js`): the same rules (size, aspect, subject, view.closer, view.subjectY). The world is built for the
-  frame the page opens with; `H.frame.cx` and `H.frame.half(z)` place things across its actual width.
+- 2D (`harness-2d.js`): the same rules (size, aspect, subject, view.closer, view.subjectY). The world is built for
+  the frame the page opens with; `H.frame.cx` and `H.frame.half(z)` place things across its actual width. It has
+  no `?safe` overlay and none of the film hooks (`web-2d.md` section 7).
 
 ## 3. Composition by shape
 
@@ -117,8 +118,8 @@ buttons):
 - The box every platform leaves clear: x 120-888, y 288-1248 (768 x 960): the hero, the landmark, any text you burn
   in. If a square crop of the Reel must also read, keep the subject within y 420-1248.
 - Feed crops of a 9:16 frame: 4:5 keeps y 285-1635, the 3:4 grid y 240-1680, 1:1 y 420-1500 (all centred).
-- `?safe=all` (or meta, tiktok, shorts; `capture.py --safe all`) outlines the box and the crops over the frame: a
-  preview aid, never a deliverable. The default lift puts the subject inside it.
+- `?safe=all` (or meta, tiktok, shorts; `capture.py --safe all`; 3D harness only) outlines the box and the crops
+  over the frame: a preview aid, never a deliverable. The default lift puts the subject inside it.
 - Burned-in text: inside the box, paper-cut lettering on its own card (`paper-ui.md`), never across the bottom third.
 
 ## 6. What scales with resolution
@@ -137,23 +138,39 @@ buttons):
 ## 7. Video export
 
 ```text
-python scripts/capture.py <project> rise:video=6,30 walk:video=8,30,ArrowLeft+ArrowUp --size reel
+python scripts/capture.py <project> clip:timeline=10,60 --size reel --audio --verify-frames 4
+python scripts/capture.py <project> rise:video=6,30 walk:video=8,30,ArrowLeft+ArrowUp --size reel --audio
 ```
 
-renders each clip on the fixed clock from `restart()` (everything flat; a fourth number skips ahead: `video=4,30,-,3.2`
-starts risen), one PNG per frame, then an MP4 with ffmpeg. `route=5,30;9,0;4.6,-3;0.2,-6` walks the hero through
-waypoints for a clip (steered like a stick through the same acceleration, turns and blockers, the camera following;
-it reports the waypoints reached). Encoded:
-H.264 High, yuv420p, BT.709 tagged, limited range, a closed GOP of half a second, `+faststart`: what YouTube, Meta,
-TikTok and X all accept. The same encode by hand:
+- **Shots.** `timeline=SEC[,FPS[,FROM]]` records a scripted film, a scrolling world or any scene without a hero on
+  the fixed clock (`motion.md` section 11); `video=SEC[,FPS[,KEYS[,FROM]]]` records from the restart, holding the
+  keys; `route=SEC,FPS[,FROM];X,Z;X,Z;...` walks the hero through waypoints. FPS may be fractional (23.976, 29.97,
+  59.94). Files land in `<project>/frames/<name>.mp4`. `time=SEC[,FPS]` saves one PNG of the film at SEC seconds,
+  stepped as the video steps (FPS default 30): a still per shot to review before any video is encoded.
+- **Frames.** They go through Chrome's WebCodecs H.264 encoder on the GPU (60-200 fps instead of ~3), then ffmpeg
+  writes the MP4 every platform takes: H.264 High, `yuv420p`, BT.709, `+faststart`. The first encoded frame is a
+  set of colour patches, read back to learn which range and matrix this encoder wrote (they differ by machine and
+  are not tagged; without the check blacks crush and colours shift).
+- **Lossless frames.** `--png-frames` records PNG screenshots instead (slower: use it for a master). The script
+  falls back to them by itself with `--safe`, `--ss` above 1, an odd frame size, HTML drawn over the canvas (the
+  fast path records the canvas alone), no WebCodecs, an encoder failure or a failed colour check.
+- **Sound (`--audio`).** The page's hook renders the stems (`renderAudio(seconds, { from })`: the paper sounds the
+  harness logged and, with `H.setMusicRenderer`, the score); `--paper-wav` / `--music-wav` replace them with files
+  of any format ffmpeg reads, cut to the clip. With music, the paper peak is set `--paper-ratio` dB (default 18)
+  under the music peak and the mix is brought to `--lufs` (default -16) by one gain; nothing is compressed. Without
+  music the paper keeps the kit's own quiet level (`--paper-gain DB` adds gain): paper is never normalised. The
+  mix is 48 kHz stereo AAC at 192 kbps (`sound.md` section 9). The music fades out over the clip's last second or
+  less; `--loop` leaves it unfaded, for a film whose end runs into its start.
+- **Checks.** Every MP4's frame count is read back with ffprobe, and a mismatch fails the run. `--verify-frames N`
+  also saves N evenly spaced frames from the finished MP4 as PNGs: look at them (colour, framing, the last frame).
+- **2D pages** record `video=`, `timeline=` and `route=` too, without `--audio` or `--safe`.
+
+The equivalent ffmpeg transcode by hand:
 
 ```text
 ffmpeg -framerate 30 -i f_%05d.png -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -profile:v high -preset slow -crf 18 -g 15 -bf 2 -movflags +faststart out.mp4
 ```
 
-- Sound: render it offline at the event times (`sound.md`), then mux:
-  `ffmpeg -i out.mp4 -i sound.wav -c:v copy -c:a aac -ar 48000 -b:a 192k -shortest final.mp4`; loudness about
-  -16 LUFS for the web (`process.md` section 5).
 - CRF 18 is visually clean; to hit a bitrate instead, YouTube's SDR guide: 1080p 8 Mbps (12 at 60 fps), 1440p 16 (24),
   2160p 35-45 (53-68).
 - Clip length: hooks 3-4 s, clips 5-8 s (`motion.md` section 11); a Reel or Short loops, so let the last frame lead

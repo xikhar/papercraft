@@ -89,8 +89,8 @@ Starting values for the spec, for any subject (it changes the palette, light pre
 - Layout: the world's own leading line, landmarks, groups and clearings, water only if the brief has it; density and
   grouping as in section 4 (Composition). `references/worlds.md`.
 - Motion: hinges only (rotate, overshoot 8-15 %, settle 0.6-1.1 s, a small quiver); a calm camera.
-  `references/motion.md`. Sound: quiet, sparse, low-passed, one sound per gesture; soft low music or none.
-  `references/sound.md`.
+  `references/motion.md`. Sound, if any: quiet, sparse, low-passed, one sound per gesture; soft low music or
+  none. `references/sound.md`.
 - Out of scope (the spec's BANNED line): gloss, neon, black outlines, UI chrome, text and logos, a horizon, sky, table
   or book edge in frame, anything a real paper object could not do.
 
@@ -105,7 +105,8 @@ For judging frames, one concrete target beats a mood board (a mood board still g
 preference:
 1. An image the owner picks or supplies.
 2. If the user asked for image generation: an image generated from the build's own screenshots ("this world, in
-   this exact visual language, but better"). It stays reachable. Idealised targets generated from words alone could
+   this exact visual language, but better"), or, before there is a build, with the gallery's stills as style inputs
+   (`image-gen.md` section 4). It stays reachable. Idealised targets generated from words alone could
    not be matched: blind critics picked the build as the imitation in 25 of 26 trials, and the "fool the critic" loop
    could not end on its own.
 3. Real photos of paper objects, for material truth only (edge width, penumbra, fibre). They are trivially identified
@@ -222,28 +223,31 @@ Nothing can be compared, measured or reverted if two runs differ.
   `window.__papercraft`, with `ready: true` once the (synchronous) build has finished. Every review frame is
   `restart(); step(T)`, never a grab of the free-running loop. Add URL switches for seed, named shot, mute, and every
   feature (for cheap on/off A/B). The templates have `?capture` (removes the on-screen hint, which does not fade on
-  its own there: load every review page with it) and `?walk` / `?still`; the 3D one also `?test`, `?mood=`, `?roam`,
-  `?diag=key` and `?ss=2`, the 2D one `?view=x,z,zoom`.
+  its own there: load every review page with it), `?walk` / `?still` and `?ss=2`; the 3D one also `?test`, `?mood=`,
+  `?roam` and `?diag=key`, the 2D one `?view=x,z,zoom`.
 - **Review set:** the named shots from the style card, at fixed seed, camera and size (e.g. 1600x900). Every metric,
-  critic and before/after uses the same set. Show critics supersampled frames (`?ss=2` in the 3D template) so they
-  judge the cut edges a real screen shows; measure the gates on the same captures every time. The storybook gates
-  are written for the wide hero frame (the hero 6-10 % of the frame height): on a close frame (`look()`) judge
-  edges, prints, shadows and colour by eye and ignore printDetail, barePct, localContrast, flatPct and the focus
-  gates.
+  critic and before/after uses the same set. Show critics supersampled frames (`?ss=2`, `capture.py --ss 2`) so they
+  judge the cut edges a real screen shows; measure the gates on the same captures every time. The storybook gates are
+  written for the wide hero frame (the hero 6-10 % of the frame height): on a close frame (`look()`) judge edges,
+  prints, shadows and colour by eye and ignore printDetail, barePct, localContrast, flatPct and the focus gates.
 - **Stills:** load the page with `?capture`, wait for `ready`, `restart(); step(T)`, then grab right after the render
   (fresh drawing buffer): `canvas.toDataURL()` in the same task as `step()`, or a headless browser screenshot. Fail
-  the capture on a console error or a black frame; run it after every change. For the 3D harness,
-  `scripts/capture.py <project> [shots]` does all of it (serves the folder, headless Chrome with the GPU, named shots:
-  overview, midrise, test, key, mood=, look=, spot=, walk=, at=, hold=) and prints the build time, the slowest prints
-  and every page error; it exits non-zero on a page error or a walk that does not arrive (a hand-rolled capture of one
-  tester hid a page error and cost it a round).
+  the capture on a console error or a black frame; run it after every change. `scripts/capture.py <project>
+  [shots]` does all of it for both templates (serves the folder, headless Chrome with the GPU, named shots:
+  overview, midrise, look=, walk=, at=, hold= and the video shots; on the 3D harness also test, key, mood=, spot=)
+  and prints the build time, the slowest prints, the hero's clipping check and every page error. It exits non-zero
+  on a page error, a clipping hero, a walk that does not arrive or a video whose frames do not add up (a hand-rolled
+  capture of one tester hid a page error and cost it a round).
 - **Motion:** trigger-aligned contact sheets (e.g. 48 frames at 30 fps from the first fold event) let critics judge
   motion from a still.
-- **Video:** frame-stepped at exactly the output rate (frame i at t = i / fps), never screen-recorded. Render audio
-  offline from a recorded event timeline and mux it. Check with a 1-frame-per-second contact sheet (60 = the fps)
-  (`ffmpeg -i out.mp4 -vf "select='not(mod(n\,60))',scale=640:-1,tile=3x2" -frames:v 1 sheet.png`) and loudness
-  around -16 LUFS (`ffmpeg -i out.mp4 -af loudnorm=print_format=json -f null -`). One frame-by-frame check caught an
-  autopilot that stood still after 8 s.
+- **Video:** frame-stepped at exactly the output rate (frame i at t = i / fps), never screen-recorded, with the
+  sound rendered offline from the recorded event timeline and muxed: `capture.py <project> clip:timeline=10,60
+  --audio --verify-frames 4` does both and saves frames of the finished MP4 to look at (`formats.md` section 7).
+  Check a longer film with a 1-frame-per-second contact sheet (60 = the fps)
+  (`ffmpeg -i out.mp4 -vf "select='not(mod(n\,60))',scale=640:-1,tile=3x2" -frames:v 1 sheet.png`), and the
+  loudness of a mix with music, around -16 LUFS (`ffmpeg -i out.mp4 -af loudnorm=print_format=json -f null -`;
+  paper sounds alone stay far quieter and are never normalised). One frame-by-frame check caught an autopilot that
+  stood still after 8 s.
 - **Gotchas:** capture from a production build (hot reload kills long captures); run heavy captures one at a time;
   measure fps alone and last (background windows get throttled and the numbers are invalid).
 
@@ -296,6 +300,10 @@ against the target, far lower chroma (no hot accent family), greyer shadows, dim
 colours. Its lens numbers were already fine.
 
 How to read the numbers:
+- With a target, read the target column first. The gates are wide enough to admit five different worlds, so they
+  cannot tell you this frame is YOUR world's frame: a film's main shot passed 20 of 21 gates while its median was
+  0.18 darker than its key frame, its saturation 0.14 higher and its sharp band 0.15 narrower, and its owner called
+  the result "okay, not exceptional". Run `--target` on every round's stills and close the largest gap first.
 - A PASS means "not obviously off". An early build scored 19/20 on a look gate while blind critics gave it wow 3.5
   against 7.5-8. Metrics see grading, light balance and lens; they do not see shapes, construction, density or
   composition, and those decided every verdict.
@@ -329,6 +337,10 @@ Stopping rules (whichever comes first):
   set AND no remaining defect of severity >= 7 has a cheap fix.
 - The pass time box is used (30-90 min wall clock; a team pass ran 33-94 min with 7-15 agents), or three passes
   are done.
+- A time box is a budget to spend, not a time to beat. Gates passing with time left start the next pass (the gaps
+  against the target, then the checklist in `SKILL.md` section 8). One build stopped at "the gates pass" with a
+  third of its time unused and its biggest defects still in the frame (two kinds of tree stamped hundreds of times,
+  the landmarks out of focus); another passed 18-19 of 20 with a subject a third the size of its reference's.
 - Never "until critics cannot tell the difference". Against an idealised target that never happens: the final
   shipped build still scored closeness 5.5/10 against its gold image and was well received. Critics are a direction
   finder, not a ship gate.
@@ -351,7 +363,7 @@ critics argued against several of them.
 | Tactile | chunky cut card, thin dark cut edges lit on the light side, a layered print with contrasting accents, short soft shadows (warm on its warm ground), living water; the owner chose the final target for its shapes, edges and texture on every piece, its composition and its living water |
 | Hero always readable | bloom, if any, low and above a high threshold (the shipped game cut it 1.4 -> 0.5; the kit has none), the hero's lamp dimmed by day (3.6 -> 1.1); when the hero is hidden, ease the camera (up to ~10 deg pitch / 14 deg yaw), never cut a see-through hole |
 | Subtle motion | hop 12 -> 3.3 % of the hero's height, waddle roll 5 -> 1.6 deg, lean 6 -> 3.5 deg (`references/motion.md`, the puppet table); triggers need a grace radius (rises in a 7 s jitter test 61 -> 7) |
-| Quiet, low sound | one paper sound per gesture, about 0.55 s apart, gain 0.76 -> 0.13, pitch down (0.5-0.82), band limit 11.5 -> 2.6 kHz (`references/sound.md` section 1); footsteps ~16 dB under a flap; soft low piano, low-passed under ~1.9 kHz, no bells. The owner's ears overruled spectral targets five times: get them listening early, start quiet |
+| Quiet, low sound | one paper sound per gesture, about 0.55 s apart, gain 0.76 -> 0.13, pitch down (0.45-0.74), band limit 11.5 -> 1.6 kHz (`references/sound.md` section 1); footsteps ~16 dB under a flap; soft low piano, low-passed under ~1.9 kHz, no bells. The owner's ears overruled spectral targets five times: get them listening early, start quiet |
 | No game-y UI | collectable stamps with confetti were removed; cursor hidden; no on-screen UI beyond a fading hint; diegetic paper UI (a map page sliding up) is fine; ask before adding "game" features to a calm piece (a disc under the figure went too); `references/paper-ui.md` |
 | Only what paper can do | hinges, folds, layers, light through card; no scaling or fading in (except the pop, flip and shrink-away verbs of `references/motion.md` for small things), no dithered see-through, no glow haze, no plastic sheen |
 | Endless means seamless | no page border, seams or tile grid in an infinite scene (the critics' "show the book edge" was vetoed) |
@@ -437,6 +449,8 @@ STANDING DECISIONS (owner; do not undo; they override critics, references and me
 
 ## 10. Final self-review checklist
 
+`SKILL.md` section 8 is the short check to run on every render; this is the full list for a finished project.
+
 - [ ] The style card exists, fits on one page, and lists LOCKED owner decisions and what is out of scope.
 - [ ] One target (image or written) is measured; conflicts with the brief are resolved in the log.
 - [ ] Paper kit: diffuse only, two-octave fibre fixed to the surface, the cut edge (dark line + lit-side highlight,
@@ -455,7 +469,7 @@ STANDING DECISIONS (owner; do not undo; they override critics, references and me
       triggers have hysteresis; the camera rests when nothing moves.
 - [ ] No card cuts into another, at rest or moving: the hero's check is clean (`__papercraft.clips()`), moving
       constructions pass `cardClips` at a few poses, nothing flickers where cards overlap.
-- [ ] Sound is quiet, sparse and low-passed, and the owner has listened to it.
+- [ ] Sound, if any, is quiet, sparse and low-passed, and the owner has listened to it.
 - [ ] No game-y UI, no text or logos, no border, seam or grid in an endless scene; nothing a paper object could not do.
 - [ ] Capture is deterministic: every review frame is `restart(); step(T)` on a `?capture` page; two runs give
       identical stills; video is frame-stepped with offline audio.

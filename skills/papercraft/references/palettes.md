@@ -17,7 +17,7 @@ A paper palette is a set of roles. Fill every role before you pick any other col
 | ground light / dark | the printed ground, two tones | the world's floor (sand, snow, moss, deck plates, tiles), muted and paler and greyer than the cards (rule 9), so the pieces carry the colour; 15-25 % apart in value |
 | subject (3-6) | the colours of the main pieces | one lead family from the subject's own materials and the references |
 | accents | 1-2 per piece, plus one small warm note of light and life | contrast with the piece's base, never tone-on-tone (`accentsFor(base)`); the warm note under ~5 % of the frame |
-| ink | linework, outlines, printed marks | the darkest subject hue pushed toward umber; never `#000` |
+| ink | linework, outlines, printed marks | the darkest subject hue pushed toward umber (in a cold world, toward its own dark: a navy, a slate); never `#000` |
 | edge | dark cut line + lit-side highlight | not a palette colour: `P.rim()` derives it from each print, in every mood |
 | leak | the colour shadows let through | the world's shadow colour: warm amber on a warm ground by day, lilac-blue on snow, teal under water, deep navy at night (`look.md`) |
 | haze | distance colour, applied in display space | a mid tone, never near white; subtle, far only |
@@ -31,9 +31,10 @@ A paper palette is a set of roles. Fill every role before you pick any other col
    less saturated than they are. The shipped game's biomes each kept one family; five competing hues read
    as a toy box.
 2. **Every surface has two tones, marks and contrasting accents.** Base, a shade (mix 25-35 % toward warm umber
-   `#2b1a0e`), a light (mix 15-20 % toward cream `#fff7e8`), speckle, and 1-2 accents that contrast with the base
-   (red + olive leaves on an orange tree, cream flowers and red berries on a green bush; `accentsFor(base)` gives a
-   fallback pair), never tone-on-tone. `shade()` in `assets/lib/paperkit-2d.js` darkens toward umber, never grey.
+   `#2b1a0e`; a cold world may `mix()` toward its own dark), a light (mix 15-20 % toward cream `#fff7e8`), speckle,
+   and 1-2 accents that contrast with the base (red + olive leaves on an orange tree, cream flowers and red berries on
+   a green bush; `accentsFor(base)` gives a fallback pair), never tone-on-tone. `shade()` in
+   `assets/lib/paperkit-2d.js` darkens toward umber, never grey.
 3. **Rich, not neon, as rich as the world.** A colourful brief lands at mean HSV saturation ~0.55-0.75 (the shipped
    colourful frames measure 0.58-0.73); snow, mist, fog and pale briefs sit far lower (the gallery's snow ~0.15),
    which is right. Print colour can be rich if the grade pulls it back a little (~0.96). No colour fog or sepia

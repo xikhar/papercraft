@@ -432,8 +432,9 @@ Secondary motion and small life:
 
 A miniature reads through a long lens looking down into the world, the printed ground past every frame edge (no
 horizon, sky, table or book edge), a sharp band across the subject (~36-45 % of the frame, `look.md` section 6) and a
-calm camera that never chases. A follow camera keeps the hero a little below centre so the world unfolding ahead
-stays in frame; a composed still puts him off-centre (`worlds.md` section 9).
+calm camera that never chases (this section is the game's camera; a film's moves and cuts: section 11). A follow
+camera keeps the hero a little below centre so the world unfolding ahead stays in frame; a composed still puts him
+off-centre (`worlds.md` section 9).
 
 | Key | Value | Note |
 |---|---|---|
@@ -478,16 +479,106 @@ lens eases from the overview's `focus` to him over ~0.6 s.
 
 ## 11. Animation and video (non-interactive)
 
-Frame size, aspect (a 9:16 Reel, a square post, 4K), safe areas and the MP4 every platform takes: `formats.md`;
-`scripts/capture.py <project> clip:video=6,30 --size reel` steps the fixed clock, saves each frame and encodes.
+Frame size, aspect (a 9:16 Reel, a square post, 4K), safe areas and the MP4 every platform takes: `formats.md`.
+`scripts/capture.py <project> clip:timeline=10,60 --size reel --audio --verify-frames 4` steps the fixed clock,
+records every frame, mixes the paper sounds with the score and checks the MP4.
+
+**Film wiring (3D harness).** A film, a world you scroll through or a product reveal is the same scene with three
+things scripted: when pieces rise, where the camera is, and the score. It needs no hero (skip `setHero()`). The 2D
+harness has none of this: it films a walking hero's world only (`web-2d.md` section 7).
+
+- **Rises on cue.** `createHarness({ autoOpen: false })` turns the automatic rise off (at start, on `restart()`, on
+  a click). `H.cue(t, fn)` runs `fn(time)` once when the clock reaches `t` seconds and re-arms on every `restart()`,
+  so a capture (`restart(); step(...)`) replays the same film. Inside a cue, `H.setOpen(true)` raises the whole world
+  in flat-stack order and `H.fold(handle, open = true, delay = 0)` raises or folds one piece (`handle` = what
+  `H.popup` returned), each with its paper sound placed where it stands and logged for the offline mix. Both work
+  only after `H.start()`: call them from a cue or a step hook, never while building (`restart()` lays every hinge
+  flat, so a rise set once at build time is gone in the capture). A piece you drive yourself (`h.set(1, delay)`)
+  is silent unless you also call `H.recordFlap({ size, up, pan, distance, key })`.
+- **The camera on a controller.** `H.setCameraController((time, dt, ctx) => ...)` replaces the harness camera on
+  every step; `ctx = { camera, target, post, lights, fitShadow, view, frame, shadowAt, setFocus }`. Place the camera,
+  move `ctx.target` (the lens focuses there unless you call `ctx.setFocus(x, y, z)`) and refit the shadow map as it
+  travels (`ctx.fitShadow(ctx.lights, ctx.target)`). Pass `roam: true`: the camera leaves the overview, so every row
+  must print at full quality; and `crossTurn: 40` if it orbits more than ~20 degrees, so no cross comes edge-on
+  (`structures.md` section 3). The fill tests (`H.inFrame`, `H.inReach`) know only the overview: fill what your path
+  shows, and make `bounds` cover it. In a tall frame the harness still sets the lens (`ctx.frame`), but the subject's
+  place in the frame is yours: keep it clear of the platform's captions (`formats.md` section 5). For a page that
+  scrolls, drive the same path from the scroll position, smoothed, instead of the clock.
+- **Paths** (`assets/lib/paper-motion.js`). `glideSchedule({ duration, fps, holdStart, easeIn, easeOut, holdEnd,
+  dips })` returns `t => progress` (0..1) for a scroll or a dolly: it holds on the opening shot, eases in, slows at
+  `dips` (`[{ at, amount, width }]`; `at` and `width` are fractions of the glide's TIME, not of its progress), eases
+  to a stop and holds. `polarCameraPos({ target: [x, y, z], azim, pitchDeg, dist, time, drift })` is a position on
+  an orbit (`azim` in radians, `pitchDeg` in degrees, `target` an array) with a little tripod drift.
+  `checkContinuity(evalFn, { duration, fps, cuts, loop })` steps your evaluator (`t => ({ pos, yaw, dist,
+  pitchDeg })`) frame by frame and lists position teleports, angle and distance snaps and non-finite values before
+  you render; a yaw that wraps past +-PI is not a jump. `cuts: [seconds, ...]` are the cuts you mean (each shot is
+  then checked on its own); `loop: true` also compares the last frame with the first.
+- **The score.** `H.setMusicRenderer((seconds, sampleRate, from) => renderScoreOffline(SCORE, seconds,
+  { sampleRate, from }))` (`sound.md` section 8); `from` is where the clip starts in the film. `capture.py --audio`
+  mixes it with the logged paper sounds, the music leading.
+
+```js
+import { glideSchedule, polarCameraPos, checkContinuity } from 'papercraft/lib/paper-motion.js';
+import { renderScoreOffline } from 'papercraft/lib/paper-music.js';
+const H = createHarness({ autoOpen: false, roam: true, crossTurn: 40, view: { pitch: 44, dist: 40, target: [0, 2, 0] } });
+// ... your ground and pieces: const tower = H.popup(...), trees = [H.popup(...), ...]
+const glide = glideSchedule({ duration: 10, fps: 60, holdStart: 1.5, easeIn: 2, easeOut: 1.5, holdEnd: 1 });
+const cam = (t) => {                                      // one evaluator for the controller and the check
+  const u = glide(t), tgt = [0, 2 + u, 0], azim = -0.4 + 0.8 * u, dist = 42 - 8 * u;
+  return { tgt, yaw: azim, dist, pos: polarCameraPos({ target: tgt, azim, pitchDeg: 46 - 4 * u, dist, time: t }) };
+};
+const check = checkContinuity(cam, { duration: 10, fps: 60 });
+if (!check.ok) console.warn('the camera path jumps', check.issues);
+H.setCameraController((t, dt, ctx) => {
+  const c = cam(t);
+  ctx.target.set(...c.tgt); ctx.camera.position.set(...c.pos); ctx.camera.lookAt(ctx.target);
+  ctx.fitShadow(ctx.lights, ctx.target);
+});
+H.cue(0.3, () => trees.forEach((h, i) => H.fold(h, true, i * 0.06)));   // the ring first, staggered
+H.cue(1.4, () => H.fold(tower));                                         // then the landmark
+H.setMusicRenderer((sec, sr, from) => renderScoreOffline(SCORE, sec, { sampleRate: sr, from }));
+H.start();
+```
+
+**A film is not the game.** Sections 10 and 12 are tuned for a game played for hours, whose owner kept asking for
+calmer. A film, a trailer or a showpiece is watched once and wants things going on. Two films built with this skill
+mark the ends: one held each scene for 6 s behind a camera that swayed 10 degrees, with sparse life, and its owner
+called it "slow motion"; the next moved in every shot and was accepted.
+
+- **Camera.** One committed move per shot (a crane, a truck beside the subject, an orbit, a dolly, a boom up to a
+  wide), eased in and out; a locked frame only when the brief asks for one. Cut between shots on the bars of the
+  music and pass the cut times to `checkContinuity` (`cuts`). The pitch may go under 40 degrees where backdrop flats
+  close the top of the frame; the page's edge, a void or a horizon never shows.
+- **Subject size.** Larger than a game's hero: about 10-15 % of F in a travelling shot, up to a third of the frame
+  in a close pass. Measure it on a still of every shot, and against the target frame if there is one: a subject a
+  third the size of its reference's was the first thing an owner saw.
+- **The lens per shot.** A controller that moves in close narrows what is sharp. Set `ctx.post.o.focusBand`, `ramp`
+  and `maxBlur` for each shot so the subject AND the shot's landmark are sharp together, keep `ctx.setFocus` on the
+  subject, and compare `focusHeight` with the target's (`measure.py --target`): a film whose landmarks sat in the
+  blur measured 0.56 against its key frame's 0.72.
+- **Pace and life.** Holds of 2-3 s at most. Besides the camera and the subject, several things move in every frame:
+  the world's own movers and life (section 12) at a film's density, still paper, still never filling the air. Read
+  it on a contact sheet at 2 frames per second: no two neighbours look alike.
+- **Light that changes.** `H.mixMood(a, b, k)` applies mood `a` blended `k` (0..1) of the way to mood `b` (names in
+  `moods`, `'day'` for the light the world was built with, or mood objects): key, fill, sky, shadow colour, lit
+  panes, lamps, haze and grade together, colours mixed in linear light. Call it from the controller or a step hook
+  with an eased `k`; `H.lampLights` holds the lamps, to bring them on one by one.
+- **A still at a film time.** `capture.py <project> shot3:time=15.5` is the film's frame at 15.5 s, with cues, camera
+  and light where the video has them. One still per shot is a film's review set.
+- **A loop** (the last frame runs into the first). Make every motion a function of the loop time (`t mod L`), not of
+  state stepped from `restart()`: the kit's springs and `paper-life` start from rest and do not return to it by
+  themselves, and `windSway` does not repeat every L, so pose them from the loop time or keep them still across the
+  seam. Check the camera with `checkContinuity(..., { loop: true })`, compare a still at `time=0` with one a frame
+  before `L`, and export with `--audio --loop` (no fade at the end; render the score without its own fades: `sound.md`
+  section 9).
 
 **Timing in frames.** Either key the tables in section 3 directly, or run the same simulation with `dt = 1/fps` per
 rendered frame (never wall time) and `settle()` for stills. Both templates expose `window.__papercraft` with `step`,
 `restart`, `resume`, `toggle` and `ready` for exactly this (`resume()` hands back to the real-time loop; `place`,
 `walkPath` and `look` add scripted walks and close review frames): every review frame is `restart(); step(T)`, where
-`restart()` = `h.reset(0)` on every hinge, then `setOpen(true)`. Event frames at 24 fps: rise upright f6-7, peak f7,
-first dip f9-10, still f25-26; fall twitch f1, first page contact f14 (small) to f17 (large), still f18-21. At 30 fps:
-upright f8, peak f8-9, still f31-32.
+`restart()` = `h.reset(0)` on every hinge, then `setOpen(true)` (unless `autoOpen: false`: then your cues). Event
+frames at 24 fps: rise upright f6-7, peak f7, first dip f9-10, still f25-26; fall twitch f1, first page contact f14
+(small) to f17 (large), still f18-21. At 30 fps: upright f8, peak f8-9, still f31-32.
 
 **Shot structure** (4-8 s):
 1. 0.5-1 s of the flat print (it must already show what will rise; `worlds.md`).
@@ -500,10 +591,10 @@ Rules from a batch of demo clips:
   while the reveal grows at the frame edges. Glides between framings take ~0.9 s.
 - Overlays and edit graphics slide or fold in like paper; a slow scale-up of cards was rejected as "slow and bad
   looking".
-- Hook clips 3-4 s, longer clips 5-8 s. Capture clips with world sound but no music, so the joined edit can carry
-  one continuous music track.
-- Sound: one fold event per card start; render it offline at the event times (`renderOffline` in
-  `assets/lib/paper-sound.js`).
+- Hook clips 3-4 s, longer clips 5-8 s. Clips that will be joined in an edit: capture them with world sound but
+  no music, so the edit can carry one continuous music track. A single deliverable: `--audio` mixes the score in.
+- Sound: one fold event per card start, rendered offline at the event times (the 3D harness logs them and
+  `capture.py --audio` renders them: `renderOffline` in `assets/lib/paper-sound.js`).
 - Motion blur: smooth style may use a light 180-degree shutter (average 4-8 sub-frames); keep the quiver crisp.
 
 **Stop-motion option** *(opt)*:
@@ -519,8 +610,8 @@ Rules from a batch of demo clips:
 A place is alive in the source game: leaves come down and rest on the page, smoke curls from chimneys, birds cross
 above the trees, sheep graze, hens scatter, a fox bounds off when the hero comes near. Choose that life from the
 brief's ENVIRONMENT and time of day, never one list for every world. Use 3-5 kinds per world, small, slow and paper,
-moving while the hero stands still. `assets/lib/paper-life.js` is the plumbing (bottom of this section); the
-colours, cuts, counts and places come from your brief.
+moving while the hero stands still (a film takes more of it: section 11). `assets/lib/paper-life.js` is the plumbing
+(bottom of this section); the colours, cuts, counts and places come from your brief.
 
 **What lives where** (the source game's five biomes, then the same thinking for others; numbers are its densities,
 1 = the full pool below):
@@ -574,7 +665,11 @@ streak); only fireflies and embers glow. Keep it subtle (the owner of the source
 fill the air: on most frames you should count only a few falling things in the sharp band. Nothing pops in: fallers
 spawn above the frame and shrink away on the page, and puffs grow from nothing and shrink to nothing.
 
-**Plumbing:** `assets/lib/paper-life.js` (three.js; every size and speed in H):
+**Plumbing:** `assets/lib/paper-life.js` (three.js; every size and speed in H; plain dead-matte materials). On raised
+or rolling ground pass `groundY: (x, z) => y`: fallers, flyers, mist, cloud shadows and creatures are lifted by the
+ground's height there, and a creature keeps its own height above it (a perched owl stays on its stump). One-shot
+bursts (confetti, sparks): `const b = life.bursts({ capacity, colors }); b.spawn(origin, opts)` (`origin` an
+`[x, y, z]` array or a Vector3).
 
 ```js
 import { createLife } from 'papercraft/lib/paper-life.js';
@@ -582,7 +677,7 @@ const life = createLife({ scene: H.scene, camera: H.camera, heroHeight: H.heroHe
 life.fallers({ count: 460, cut: 'flake', colors: ['#ffffff', '#fbf6ee'], size: [0.07, 0.12], fall: [0.8, 1.4], sway: 0.27, land: 2.6 });
 life.puffs({ at: [house.userData.chimneyTop], rise: 0.45, life: 4.5 });   // cut 'puff': a disc with a cut spiral
 life.flock({ height: 3.4, colors: ['#f6f1e6'] });
-life.critter(deer.group, { behaviour: 'shy', hero: H.hero.group.position, walk: H.walk });
+life.critter(deer.group, { behaviour: 'shy', hero: H.hero.group.position, walk: H.walk });   // no hero: omit `hero`
 life.setNight({ night: 1, dusk: 0.5 }[H.flags.MOOD] ?? 0);
 H.onStep((t, dt) => life.update(dt, H.target));            // the weather box follows the view
 H.onRestart(() => life.reset(H.target));                    // captures repeat: restart(); step(T)
